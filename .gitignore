@@ -1,1 +1,12 @@
 .metadata/ 
+firmware/Debug/
+firmware/.settings/
+*.elf
+*.bin
+*.hex
+*.o
+*.d
+*.su
+*.cyclo
+*.list
+*.map

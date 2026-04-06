@@ -22,6 +22,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,8 +48,6 @@ ADC_HandleTypeDef hadc1;
 
 I2C_HandleTypeDef hi2c1;
 
-IWDG_HandleTypeDef hiwdg;
-
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -57,6 +59,27 @@ DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
 
+/* 엔코더 파라미터 */
+#define ENCODER_PPR         8
+#define GEAR_RATIO          120
+#define PULSES_PER_REV      3840    // 8 * 120 * 4 (x4 mode)
+#define WHEEL_DIAMETER_MM   66.0f
+#define PI_VAL              3.14159265f
+#define WHEEL_CIRCUMFERENCE (PI_VAL * WHEEL_DIAMETER_MM)
+#define MM_PER_PULSE        (WHEEL_CIRCUMFERENCE / (float)PULSES_PER_REV)
+
+/* TIM 카운터 */
+#define TIM_PERIOD          65535
+#define TIM_CENTER          32768
+
+/* 상태 변수 */
+static int32_t enc1_total = 0;
+static int32_t enc1_last = 0;
+static int32_t enc2_total = 0;
+static int32_t enc2_last = 0;
+static char uart_buf[256];
+static uint8_t rx_byte;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -65,7 +88,6 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
-static void MX_IWDG_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM1_Init(void);
@@ -113,7 +135,6 @@ int main(void)
   MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_ADC1_Init();
-  MX_IWDG_Init();
   MX_TIM6_Init();
   MX_I2C1_Init();
   MX_TIM1_Init();
@@ -121,6 +142,36 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
+
+  // PA15, PB3 풀업 설정
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  GPIO_InitStruct.Pin = GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF1_TIM2;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_3;
+  GPIO_InitStruct.Alternate = GPIO_AF1_TIM2;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  // 엔코더 시작
+  __HAL_TIM_SET_COUNTER(&htim2, TIM_CENTER);
+  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+  enc1_last = TIM_CENTER;
+
+  // 엔코더2 시작
+  __HAL_TIM_SET_COUNTER(&htim4, TIM_CENTER);
+  HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
+  enc2_last = TIM_CENTER;
+
+  // UART 수신 인터럽트
+  HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+
+  // 시작 메시지
+  char *msg = "\r\n== Encoder Test ==\r\n";
+  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 
   /* USER CODE END 2 */
 
@@ -131,6 +182,31 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  // 엔코더1 읽기
+	  int32_t now1 = (int32_t)__HAL_TIM_GET_COUNTER(&htim2);
+	  int32_t delta1 = now1 - enc1_last;
+	  if (delta1 > 32767) delta1 -= 65536;
+	  else if (delta1 < -32767) delta1 += 65536;
+	  enc1_total += delta1;
+	  enc1_last = now1;
+
+	  // 엔코더2 읽기
+	  int32_t now2 = (int32_t)__HAL_TIM_GET_COUNTER(&htim4);
+	  int32_t delta2 = now2 - enc2_last;
+	  if (delta2 > 32767) delta2 -= 65536;
+	  else if (delta2 < -32767) delta2 += 65536;
+	  enc2_total += delta2;
+	  enc2_last = now2;
+
+	  // 출력
+	  float mm1 = (float)enc1_total * MM_PER_PULSE;
+	  float mm2 = (float)enc2_total * MM_PER_PULSE;
+	  snprintf(uart_buf, sizeof(uart_buf),
+	      "M1: %6ld p %7.1f mm | M2: %6ld p %7.1f mm\r\n",
+	      (long)enc1_total, mm1, (long)enc2_total, mm2);
+	  HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, strlen(uart_buf), HAL_MAX_DELAY);
+
+	  HAL_Delay(200);
   }
   /* USER CODE END 3 */
 }
@@ -152,10 +228,9 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 8;
@@ -277,34 +352,6 @@ static void MX_I2C1_Init(void)
 }
 
 /**
-  * @brief IWDG Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_IWDG_Init(void)
-{
-
-  /* USER CODE BEGIN IWDG_Init 0 */
-
-  /* USER CODE END IWDG_Init 0 */
-
-  /* USER CODE BEGIN IWDG_Init 1 */
-
-  /* USER CODE END IWDG_Init 1 */
-  hiwdg.Instance = IWDG;
-  hiwdg.Init.Prescaler = IWDG_PRESCALER_32;
-  hiwdg.Init.Reload = 2000;
-  if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN IWDG_Init 2 */
-
-  /* USER CODE END IWDG_Init 2 */
-
-}
-
-/**
   * @brief TIM1 Initialization Function
   * @param None
   * @retval None
@@ -394,10 +441,10 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
+  htim2.Init.Period = 65535;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
   sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
@@ -494,7 +541,7 @@ static void MX_TIM4_Init(void)
   htim4.Init.Period = 65535;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
   sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
@@ -659,6 +706,23 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART2)
+    {
+    	if (rx_byte == 'r' || rx_byte == 'R')
+    	{
+    	    enc1_total = 0;
+    	    enc1_last = (int32_t)__HAL_TIM_GET_COUNTER(&htim2);
+    	    enc2_total = 0;
+    	    enc2_last = (int32_t)__HAL_TIM_GET_COUNTER(&htim4);
+    	    char *msg = "[RESET]\r\n";
+    	    HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+    	}
+        HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+    }
+}
 
 /* USER CODE END 4 */
 
