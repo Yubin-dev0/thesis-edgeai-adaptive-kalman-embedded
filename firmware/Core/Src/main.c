@@ -24,7 +24,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
 
 /* USER CODE END Includes */
 
@@ -59,26 +58,18 @@ DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
 
-/* 엔코더 파라미터 */
-#define ENCODER_PPR         8
-#define GEAR_RATIO          120
-#define PULSES_PER_REV      3840    // 8 * 120 * 4 (x4 mode)
-#define WHEEL_DIAMETER_MM   66.0f
-#define PI_VAL              3.14159265f
-#define WHEEL_CIRCUMFERENCE (PI_VAL * WHEEL_DIAMETER_MM)
-#define MM_PER_PULSE        (WHEEL_CIRCUMFERENCE / (float)PULSES_PER_REV)
+/* HC-SR04 state */
+volatile uint8_t  echo_capture_state = 0;   // 0=rising 대기, 1=falling 대기
+volatile uint32_t echo_rising_tick   = 0;
+volatile uint32_t echo_falling_tick  = 0;
+volatile uint32_t echo_pulse_us      = 0;
+volatile uint8_t  echo_ready         = 0;
 
-/* TIM 카운터 */
-#define TIM_PERIOD          65535
-#define TIM_CENTER          32768
+/* Measurement results */
+float distance_mm = 0.0f;
 
-/* 상태 변수 */
-static int32_t enc1_total = 0;
-static int32_t enc1_last = 0;
-static int32_t enc2_total = 0;
-static int32_t enc2_last = 0;
-static char uart_buf[256];
-static uint8_t rx_byte;
+/* Loop timing */
+uint32_t loop_max_us = 0;
 
 /* USER CODE END PV */
 
@@ -95,6 +86,12 @@ static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
+
+void  DWT_Init(void);
+void  DWT_Delay_us(uint32_t us);
+uint32_t DWT_GetTick_us(void);
+void  HCSR04_Trigger(void);
+int   __io_putchar(int ch);
 
 /* USER CODE END PFP */
 
@@ -143,70 +140,49 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
-  // PA15, PB3 풀업 설정
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-  GPIO_InitStruct.Pin = GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF1_TIM2;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  GPIO_InitStruct.Pin = GPIO_PIN_3;
-  GPIO_InitStruct.Alternate = GPIO_AF1_TIM2;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  // 엔코더 시작
-  __HAL_TIM_SET_COUNTER(&htim2, TIM_CENTER);
-  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
-  enc1_last = TIM_CENTER;
-
-  // 엔코더2 시작
-  __HAL_TIM_SET_COUNTER(&htim4, TIM_CENTER);
-  HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
-  enc2_last = TIM_CENTER;
-
-  // UART 수신 인터럽트
-  HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
-
-  // 시작 메시지
-  char *msg = "\r\n== Encoder Test ==\r\n";
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+  DWT_Init();
+  HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
+  printf("\r\n=== Phase 3: HC-SR04 Test ===\r\n");
+  HAL_Delay(100);
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  uint32_t last_trigger_ms = 0;
+  uint32_t loop_count = 0;
+
   while (1)
   {
+      uint32_t loop_start_us = DWT_GetTick_us();
+
+      /* 50ms 주기 (20Hz) */
+      if (HAL_GetTick() - last_trigger_ms >= 50)
+      {
+          last_trigger_ms = HAL_GetTick();
+          HCSR04_Trigger();
+      }
+
+      /* Echo 결과 처리 (블로킹 없음) */
+      if (echo_ready)
+      {
+          echo_ready = 0;
+          /* 거리 = pulse_us * 0.343 / 2  [mm] */
+          distance_mm = (float)echo_pulse_us * 0.1715f;
+          loop_count++;
+
+          printf("[%lu] pulse=%lu us, dist=%.1f mm, loop_max=%lu us\r\n",
+                 loop_count, echo_pulse_us, distance_mm, loop_max_us);
+      }
+
+      /* 메인 루프 시간 측정 (블로킹 검증용) */
+      uint32_t loop_elapsed = DWT_GetTick_us() - loop_start_us;
+      if (loop_elapsed > loop_max_us) loop_max_us = loop_elapsed;
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  // 엔코더1 읽기
-	  int32_t now1 = (int32_t)__HAL_TIM_GET_COUNTER(&htim2);
-	  int32_t delta1 = now1 - enc1_last;
-	  if (delta1 > 32767) delta1 -= 65536;
-	  else if (delta1 < -32767) delta1 += 65536;
-	  enc1_total += delta1;
-	  enc1_last = now1;
 
-	  // 엔코더2 읽기
-	  int32_t now2 = (int32_t)__HAL_TIM_GET_COUNTER(&htim4);
-	  int32_t delta2 = now2 - enc2_last;
-	  if (delta2 > 32767) delta2 -= 65536;
-	  else if (delta2 < -32767) delta2 += 65536;
-	  enc2_total += delta2;
-	  enc2_last = now2;
-
-	  // 출력
-	  float mm1 = (float)enc1_total * MM_PER_PULSE;
-	  float mm2 = (float)enc2_total * MM_PER_PULSE;
-	  snprintf(uart_buf, sizeof(uart_buf),
-	      "M1: %6ld p %7.1f mm | M2: %6ld p %7.1f mm\r\n",
-	      (long)enc1_total, mm1, (long)enc2_total, mm2);
-	  HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, strlen(uart_buf), HAL_MAX_DELAY);
-
-	  HAL_Delay(200);
   }
   /* USER CODE END 3 */
 }
@@ -228,12 +204,11 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 4;
   RCC_OscInitStruct.PLL.PLLN = 180;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 2;
@@ -488,7 +463,7 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 0;
+  htim3.Init.Prescaler = 89;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = 65535;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -503,7 +478,7 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_BOTHEDGE;
   sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
   sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
   sConfigIC.ICFilter = 0;
@@ -707,21 +682,72 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+/* ---------- DWT (CPU cycle counter) ---------- */
+void DWT_Init(void)
 {
-    if (huart->Instance == USART2)
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+uint32_t DWT_GetTick_us(void)
+{
+    return DWT->CYCCNT / (HAL_RCC_GetHCLKFreq() / 1000000U);
+}
+
+void DWT_Delay_us(uint32_t us)
+{
+    uint32_t start = DWT->CYCCNT;
+    uint32_t ticks = us * (HAL_RCC_GetHCLKFreq() / 1000000U);
+    while ((DWT->CYCCNT - start) < ticks) { __NOP(); }
+}
+
+/* ---------- HC-SR04 trigger (10us pulse) ---------- */
+void HCSR04_Trigger(void)
+{
+    echo_capture_state = 0;
+    echo_ready = 0;
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
+    DWT_Delay_us(10);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
+}
+
+/* ---------- TIM3 Input Capture callback ---------- */
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM3 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
     {
-    	if (rx_byte == 'r' || rx_byte == 'R')
-    	{
-    	    enc1_total = 0;
-    	    enc1_last = (int32_t)__HAL_TIM_GET_COUNTER(&htim2);
-    	    enc2_total = 0;
-    	    enc2_last = (int32_t)__HAL_TIM_GET_COUNTER(&htim4);
-    	    char *msg = "[RESET]\r\n";
-    	    HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
-    	}
-        HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+        uint32_t cap = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+
+        if (echo_capture_state == 0)
+        {
+            /* Rising edge */
+            echo_rising_tick = cap;
+            echo_capture_state = 1;
+            __HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_FALLING);
+        }
+        else
+        {
+            /* Falling edge */
+            echo_falling_tick = cap;
+
+            if (echo_falling_tick >= echo_rising_tick)
+                echo_pulse_us = echo_falling_tick - echo_rising_tick;
+            else
+                echo_pulse_us = (0xFFFF - echo_rising_tick) + echo_falling_tick + 1;
+
+            echo_capture_state = 0;
+            echo_ready = 1;
+            __HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
+        }
     }
+}
+
+/* ---------- printf retarget to USART2 ---------- */
+int __io_putchar(int ch)
+{
+    HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+    return ch;
 }
 
 /* USER CODE END 4 */
