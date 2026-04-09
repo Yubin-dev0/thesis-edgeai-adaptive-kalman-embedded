@@ -10,3 +10,8 @@ firmware/.settings/
 *.cyclo
 *.list
 *.map
+
+# TinyML artifacts
+tools/tinyml/*.keras
+tools/tinyml/data/
+tools/tinyml/__pycache__/
