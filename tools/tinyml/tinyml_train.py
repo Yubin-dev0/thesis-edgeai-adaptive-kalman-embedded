@@ -37,7 +37,7 @@ WINDOW_SIZE = 20
 FEATURE_NAMES = ["F1_residual", "F2_residual_var", "F3_residual_mean"]
 N_FEATURES = len(FEATURE_NAMES)
 
-### CHANGED: CM-AKF clamp range (matches thesis para 143 and rule_akf_1D.py)
+### CHANGED: CM-AKF clamp range (matches thesis para 143 and cm_akf_1D.py)
 R_MIN = 1.0
 R_MAX = 10000.0
 

@@ -290,14 +290,14 @@ ax4.legend(fontsize=9)
 ax4.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('rule_akf_comparison.png', dpi=150, bbox_inches='tight')
-plt.savefig('rule_akf_comparison.pdf', bbox_inches='tight')
-print(f"\n[Saved] rule_akf_comparison.png / .pdf")
+plt.savefig('cm_akf_comparison.png', dpi=150, bbox_inches='tight')
+plt.savefig('cm_akf_comparison.pdf', bbox_inches='tight')
+print(f"\n[Saved] cm_akf_comparison.png / .pdf")
 
 # ============================================================
 # 7. CSV EXPORT (18컬럼 포맷, AKF 결과)
 # ============================================================
-csv_filename = 'rule_akf_simulation_data.csv'
+csv_filename = 'cm_akf_simulation_data.csv'
 with open(csv_filename, 'w', newline='') as f:
     writer = csv.writer(f)
     writer.writerow([
@@ -343,4 +343,4 @@ with open(csv_filename, 'w', newline='') as f:
         ])
 
 print(f"[Saved] {csv_filename} (18 columns, {N} rows, scenario=E0_AKF)")
-print(f"\nAll outputs: rule_akf_comparison.png, .pdf, {csv_filename}")
+print(f"\nAll outputs: cm_akf_comparison.png, .pdf, {csv_filename}")

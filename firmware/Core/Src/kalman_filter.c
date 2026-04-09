@@ -4,7 +4,7 @@
  *
  * This file implements the core KF predict/update cycle and the
  * CM-AKF adaptive R estimation.  All logic is a direct C translation
- * of the verified Python code (kf_simulation_1D.py, rule_akf_1D.py).
+ * of the verified Python code (kf_simulation_1D.py, cm_akf_1D.py).
  *
  * Python-to-C correspondence:
  *   Python                          C
@@ -133,12 +133,12 @@ void kf_predict(KalmanFilter *kf, float u)
  *   # --- Residual ---
  *   residual[k] = z_tof[k] - x_pred
  *
- *   # --- Buffer push (rule_akf_1D.py) ---
+ *   # --- Buffer push (cm_akf_1D.py) ---
  *   residual_buffer[buf_idx] = residual[k]
  *   buf_idx = (buf_idx + 1) % W
  *   buf_count = min(buf_count + 1, W)
  *
- *   # --- CM adaptive R (rule_akf_1D.py, only when buf full) ---
+ *   # --- CM adaptive R (cm_akf_1D.py, only when buf full) ---
  *   if buf_count >= W:
  *       res_sq_mean = np.mean(residual_buffer ** 2)
  *       R_current = np.clip(res_sq_mean - P_pred, R_MIN, R_MAX)

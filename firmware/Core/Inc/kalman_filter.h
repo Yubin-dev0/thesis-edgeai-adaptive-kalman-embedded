@@ -32,7 +32,7 @@
  * Model Parameters
  * ================================================================
  * Kept as macros for easy tuning.  Values match the Python
- * simulation (kf_simulation_1D.py, rule_akf_1D.py).
+ * simulation (kf_simulation_1D.py, cm_akf_1D.py).
  * ================================================================ */
 
 #define KF_A        1.0f        /**< State transition (position preserving)   */

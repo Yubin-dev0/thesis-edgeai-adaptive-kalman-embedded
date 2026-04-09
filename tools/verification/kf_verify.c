@@ -3,7 +3,7 @@
  * @brief   PC verification — compare C output against Python reference
  *
  * Reads the Python-generated CSV (kf_simulation_data.csv for fixed KF,
- * rule_akf_simulation_data.csv for CM-AKF) and runs the same input
+ * cm_akf_simulation_data.csv for CM-AKF) and runs the same input
  * through the C implementation.  Reports per-step max absolute error
  * to verify the Python-to-C port is correct (target: < 1e-3).
  *
@@ -18,7 +18,7 @@
  *
  * Usage:
  *   ./kf_verify kf_simulation_data.csv          # verify fixed KF
- *   ./kf_verify rule_akf_simulation_data.csv     # verify CM-AKF
+ *   ./kf_verify cm_akf_simulation_data.csv     # verify CM-AKF
  *
  * @author  Yubin
  * @date    2026-04-02
