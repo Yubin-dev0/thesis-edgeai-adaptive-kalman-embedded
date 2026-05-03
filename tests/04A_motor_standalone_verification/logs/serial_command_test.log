@@ -1,0 +1,43 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.05.03 17:26:32 =~=~=~=~=~=~=~=~=~=~=~=
+
+=== Motor Standalone Test ===
+Commands: i=init, s=softstart, +/-=speed, r=reverse, b=brake, x=stop, ?=status
+Boot state: STBY=LOW, PWM=0 (motor will NOT move until 'i')
+> 
+=== Motor Standalone Test ===
+Commands: i=init, s=softstart, +/-=speed, r=reverse, b=brake, x=stop, ?=status
+Boot state: STBY=LOW, PWM=0 (motor will NOT move until 'i')
+> 
+=== Motor Standalone Test ===
+Commands: i=init, s=softstart, +/-=speed, r=reverse, b=brake, x=stop, ?=status
+Boot state: STBY=LOW, PWM=0 (motor will NOT move until 'i')
+> PWM=0%, dir=FWD, STBY=L
+> Init: STBY=H, dir=FWD, PWM=0
+> PWM=0%, dir=FWD, STBY=H
+> SoftStart: ramping 0 -> 30%...
+PWM=30%, dir=FWD, STBY=H
+> SoftStart: ramping 0 -> 30%...
+PWM=30%, dir=FWD, STBY=H
+> SoftStart: ramping 0 -> 30%...
+PWM=30%, dir=FWD, STBY=H
+> SoftStart: ramping 0 -> 30%...
+PWM=30%, dir=FWD, STBY=H
+> STOP: STBY=LOW, motor disabled
+> ERR: run 'i' first
+> Init: STBY=H, dir=FWD, PWM=0
+> SoftStart: ramping 0 -> 30%...
+PWM=30%, dir=FWD, STBY=H
+> STOP: STBY=LOW, motor disabled
+> Init: STBY=H, dir=FWD, PWM=0
+> SoftStart: ramping 0 -> 30%...
+PWM=30%, dir=FWD, STBY=H
+> STOP: STBY=LOW, motor disabled
+> Init: STBY=H, dir=FWD, PWM=0
+> SoftStart: ramping 0 -> 30%...
+PWM=30%, dir=FWD, STBY=H
+> STOP: STBY=LOW, motor disabled
+> Init: STBY=H, dir=FWD, PWM=0
+> SoftStart: ramping 0 -> 30%...
+PWM=30%, dir=FWD, STBY=H
+> STOP: STBY=LOW, motor disabled
+> 
