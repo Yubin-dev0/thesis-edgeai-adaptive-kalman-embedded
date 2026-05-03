@@ -97,7 +97,7 @@ for k in range(1, N):
     P_pred_arr[k] = P_pred
 
     # ---- UPDATE ----
-    innov_cov[k] = P_pred + R                       # innovation covariance S
+    innov_cov[k] = P_pred + R                   # innovation covariance S
     K_gain[k] = P_pred / (P_pred + R)           # 칼만 게인
     residual[k] = z_tof[k] - x_pred             # 잔차
     x_est[k] = x_pred + K_gain[k] * residual[k] # 후험 추정
