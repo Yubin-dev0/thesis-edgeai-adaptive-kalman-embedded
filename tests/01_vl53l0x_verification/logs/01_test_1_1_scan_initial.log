@@ -1,0 +1,12 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.05.04 23:45:43 =~=~=~=~=~=~=~=~=~=~=~=
+
+========================================
+ Phase 1: VL53L0X I2C Address Scan
+ Target: 0x29 (7-bit) = 0x52 (8-bit)
+========================================
+[PASS] 0x29 responded (HAL_OK)
+
+--- Full I2C Bus Scan (0x01~0x7F) ---
+  Found: 0x29
+--- Scan complete: 1 device(s) found ---
+

@@ -1,0 +1,289 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.05.05 08:14:44 =~=~=~=~=~=~=~=~=~=~=~=
+
+========================================
+ Phase 1 Test 1-1: I2C Address Scan
+ Target: 0x29 (7-bit) = 0x52 (8-bit)
+========================================
+[PASS] 0x29 responded (HAL_OK)
+
+========================================
+ Phase 1 Test 1-2: Single Measurement
+========================================
+[INIT] VL53L0X_ResetDevice...         OK
+[DIAG] Reading device identification...
+       Model ID  (reg 0xC0): 0xEE (expect 0xEE)  [OK]
+       Revision  (reg 0xC2): 0x10 (expect 0x10)  [OK]
+       Device ID (reg 0xC0): 0xEEAA (expect 0xEEAA)
+
+[INIT] DataInit...                    OK
+[INIT] StaticInit...                  OK
+[INIT] PerformRefCalibration (try 1/3) ... OK (Vhv=29, Phase=0)
+[INIT] PerformRefSpadManagement...    OK (Spads=3, Aperture=1)
+[INIT] Initialization complete.
+
+Measurement #1: 111 mm  (status: 0)
+Measurement #2: 111 mm  (status: 0)
+Measurement #3: 112 mm  (status: 0)
+Measurement #4: 113 mm  (status: 0)
+Measurement #5: 112 mm  (status: 0)
+
+[PASS] Test 1-2 complete.
+
+========================================
+ Phase 1 Test 1-3: Static Repeatability
+ Target: 100 mm (white surface)
+ Samples: 100
+========================================
+
+  1: 109 mm
+  2: 113 mm
+  3: 112 mm
+  4: 112 mm
+  5: 113 mm
+  6: 111 mm
+  7: 110 mm
+  8: 112 mm
+  9: 111 mm
+ 10: 111 mm
+ 11: 111 mm
+ 12: 111 mm
+ 13: 111 mm
+ 14: 109 mm
+ 15: 111 mm
+ 16: 112 mm
+ 17: 111 mm
+ 18: 111 mm
+ 19: 108 mm
+ 20: 110 mm
+ 21: 110 mm
+ 22: 110 mm
+ 23: 112 mm
+ 24: 108 mm
+ 25: 109 mm
+ 26: 111 mm
+ 27: 109 mm
+ 28: 113 mm
+ 29: 110 mm
+ 30: 112 mm
+ 31: 109 mm
+ 32: 112 mm
+ 33: 111 mm
+ 34: 109 mm
+ 35: 110 mm
+ 36: 111 mm
+ 37: 109 mm
+ 38: 108 mm
+ 39: 113 mm
+ 40: 111 mm
+ 41: 111 mm
+ 42: 110 mm
+ 43: 111 mm
+ 44: 114 mm
+ 45: 111 mm
+ 46: 111 mm
+ 47: 112 mm
+ 48: 111 mm
+ 49: 109 mm
+ 50: 112 mm
+ 51: 110 mm
+ 52: 109 mm
+ 53: 109 mm
+ 54: 112 mm
+ 55: 113 mm
+ 56: 112 mm
+ 57: 111 mm
+ 58: 112 mm
+ 59: 113 mm
+ 60: 111 mm
+ 61: 112 mm
+ 62: 111 mm
+ 63: 113 mm
+ 64: 110 mm
+ 65: 112 mm
+ 66: 111 mm
+ 67: 112 mm
+ 68: 111 mm
+ 69: 114 mm
+ 70: 110 mm
+ 71: 111 mm
+ 72: 112 mm
+ 73: 110 mm
+ 74: 113 mm
+ 75: 113 mm
+ 76: 112 mm
+ 77: 112 mm
+ 78: 110 mm
+ 79: 112 mm
+ 80: 112 mm
+ 81: 115 mm
+ 82: 114 mm
+ 83: 112 mm
+ 84: 110 mm
+ 85: 112 mm
+ 86: 112 mm
+ 87: 115 mm
+ 88: 113 mm
+ 89: 109 mm
+ 90: 111 mm
+ 91: 112 mm
+ 92: 112 mm
+ 93: 110 mm
+ 94: 110 mm
+ 95: 109 mm
+ 96: 114 mm
+ 97: 113 mm
+ 98: 114 mm
+ 99: 112 mm
+100: 113 mm
+
+========================================
+ Statistics (n=100, valid=100, status0=100)
+ Mean:    111.25 mm
+ Std:       1.53 mm
+ Var:       2.35 mm^2
+ Min:      108 mm
+ Max:      115 mm
+========================================
+
+[PASS] Test 1-3 complete.
+  Std 1.53 mm <= 5 mm (target)
+
+========================================
+ Phase 1 Test 1-4: Continuous Mode
+ Target rate: 50 Hz (period 20 ms)
+ Duration: 5000 ms
+========================================
+[INIT] SetMeasurementTimingBudget 20ms ... OK (high-speed mode)
+[INIT] SetDeviceMode CONTINUOUS_RANGING ... OK
+[INIT] SetInterMeasurementPeriod 20ms   ... OK
+[INIT] StartMeasurement                 ... OK
+
+Polling for new data...
+
+Sample   1: 113 mm  (delta from start: 12 ms)
+Sample  10: 113 mm  (delta from start: 175 ms)
+Sample  50: 110 mm  (delta from start: 900 ms)
+Sample 100: 111 mm  (delta from start: 1806 ms)
+Sample 150: 113 mm  (delta from start: 2712 ms)
+Sample 200: 113 mm  (delta from start: 3618 ms)
+Sample 250: 114 mm  (delta from start: 4523 ms)
+
+========================================
+ Statistics over 5000 ms
+ Total samples:    276
+ Effective rate:   55.20 Hz
+ Mean interval:    18.12 ms
+ Min interval:     17 ms
+ Max interval:     19 ms
+========================================
+
+[WARN] Test 1-4: rate 55.20 Hz out of [45, 55] Hz
+
+
+========================================
+ Phase 1 Test 1-5: Signal Rate & Status
+ 3 scenarios x 5000 ms each
+========================================
+
+>>> Place WHITE surface @ 100mm. Starting in 3 seconds...
+
+Scenario A: White surface @ 100mm
+--------------------------------------------------
+Sample   1: dist=  113 mm, status=0, signal= 20.79 MCps, ambient= 0.04 MCps
+Sample  50: dist=  114 mm, status=0, signal= 20.77 MCps, ambient= 0.05 MCps
+Sample 100: dist=  106 mm, status=0, signal= 20.88 MCps, ambient= 0.04 MCps
+Sample 200: dist=  112 mm, status=0, signal= 20.59 MCps, ambient= 0.03 MCps
+
+[Stats A] White surface @ 100mm
+  Samples:       277
+  Status0 count: 277/277
+  Mean dist:     111.78 mm (status=0 only)
+  Mean signal:   20.96 MCps
+  Mean ambient:  0.04 MCps
+
+>>> Replace with DARK surface @ 100mm. Starting in 5 seconds...
+
+Scenario B: Dark surface @ 100mm
+--------------------------------------------------
+Sample   1: dist=  103 mm, status=0, signal= 13.80 MCps, ambient= 0.11 MCps
+Sample  50: dist=  107 mm, status=0, signal= 14.01 MCps, ambient= 0.13 MCps
+Sample 100: dist=  102 mm, status=0, signal= 14.27 MCps, ambient= 0.10 MCps
+Sample 200: dist=  107 mm, status=0, signal= 14.12 MCps, ambient= 0.12 MCps
+
+[Stats B] Dark surface @ 100mm
+  Samples:       275
+  Status0 count: 275/275
+  Mean dist:     103.60 mm (status=0 only)
+  Mean signal:   14.10 MCps
+  Mean ambient:  0.12 MCps
+
+>>> REMOVE surface (clear field). Starting in 5 seconds...
+
+Scenario C: Empty field (no surface)
+--------------------------------------------------
+Sample   1: dist=  110 mm, status=0, signal=  7.74 MCps, ambient= 0.18 MCps
+Sample  50: dist=  106 mm, status=0, signal=  7.67 MCps, ambient= 0.17 MCps
+Sample 100: dist=  110 mm, status=0, signal=  7.72 MCps, ambient= 0.18 MCps
+Sample 200: dist=  110 mm, status=0, signal=  7.77 MCps, ambient= 0.16 MCps
+
+[Stats C] Empty field (no surface)
+  Samples:       275
+  Status0 count: 275/275
+  Mean dist:     110.87 mm (status=0 only)
+  Mean signal:   7.69 MCps
+  Mean ambient:  0.18 MCps
+
+========================================
+ Test 1-5 Summary
+========================================
+| Scenario       | signal MCps | status0     |
+|----------------|-------------|-------------|
+| A: White       |     20.96   |  277/ 277  |
+| B: Dark        |     14.10   |  275/ 275  |
+| C: Empty       |      7.69   |  275/ 275  |
+
+ Expected: signal(White) > signal(Dark) > signal(Empty)
+
+[PASS] Test 1-5 complete.
+  Signal rate ordering correct: A > B > C
+
+
+========================================
+ Phase 1 Test 1-6: I2C Error Recovery
+========================================
+
+[Phase] Pre-error baseline...
+  4/5 measurements OK, mean dist: 111 mm
+
+[E1] Inject: wrong I2C address (0x55)
+  HAL status after wrong addr: HAL_ERROR (expected NACK)
+  Recovery: 5/5 measurements OK, mean dist: 113 mm
+  [PASS] E1
+
+[E2] Inject: forced StopMeasurement during Continuous
+  Continuous restart status: VL53L0X_ERROR_NONE
+  Recovery: 5/5 measurements OK, mean dist: 121 mm
+  [PASS] E2
+
+[E3] Inject: read invalid register (0xFF)
+  RdByte 0xFF status: VL53L0X_ERROR_NONE (data=0x00, possibly garbage)
+  Recovery: 4/5 measurements OK, mean dist: 113 mm
+  [PASS] E3
+
+========================================
+ Test 1-6 Summary
+========================================
+| Error | Recovery |
+|-------|----------|
+| E1    |   PASS   |
+| E2    |   PASS   |
+| E3    |   PASS   |
+
+[PASS] Test 1-6 complete.
+  Firmware recovers from all injected I2C errors.
+
+
+========================================
+ Phase 1 Verification Complete
+========================================
+

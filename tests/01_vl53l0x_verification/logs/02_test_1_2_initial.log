@@ -1,0 +1,57 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.05.05 00:11:14 =~=~=~=~=~=~=~=~=~=~=~=
+
+========================================
+ Phase 1 Test 1-1: I2C Address Scan
+ Target: 0x29 (7-bit) = 0x52 (8-bit)
+========================================
+[PASS] 0x29 responded (HAL_OK)
+
+--- Full I2C Bus Scan (0x01~0x7F) ---
+  Found: 0x29
+--- Scan complete: 1 device(s) found ---
+
+========================================
+ Phase 1 Test 1-2: Single Measurement
+========================================
+[INIT] DataInit...                    OK
+[INIT] StaticInit...                  OK
+[INIT] PerformRefCalibration...       OK (Vhv=30, Phase=1)
+[INIT] PerformRefSpadManagement...    OK (Spads=3, Aperture=1)
+[INIT] Initialization complete.
+
+Measurement #1: 328 mm  (status: 0)
+Measurement #2: 430 mm  (status: 0)
+Measurement #3: 329 mm  (status: 0)
+Measurement #4: 102 mm  (status: 0)
+Measurement #5: 106 mm  (status: 0)
+
+[PASS] Test 1-2 complete.
+
+
+========================================
+ Phase 1 Test 1-1: I2C Address Scan
+ Target: 0x29 (7-bit) = 0x52 (8-bit)
+========================================
+[PASS] 0x29 responded (HAL_OK)
+
+--- Full I2C Bus Scan (0x01~0x7F) ---
+  Found: 0x29
+--- Scan complete: 1 device(s) found ---
+
+========================================
+ Phase 1 Test 1-2: Single Measurement
+========================================
+[INIT] DataInit...                    OK
+[INIT] StaticInit...                  OK
+[INIT] PerformRefCalibration...       OK (Vhv=29, Phase=1)
+[INIT] PerformRefSpadManagement...    OK (Spads=3, Aperture=1)
+[INIT] Initialization complete.
+
+Measurement #1: 144 mm  (status: 0)
+Measurement #2: 147 mm  (status: 0)
+Measurement #3: 143 mm  (status: 0)
+Measurement #4: 142 mm  (status: 0)
+Measurement #5: 141 mm  (status: 0)
+
+[PASS] Test 1-2 complete.
+
