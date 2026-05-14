@@ -1,0 +1,50 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.05.13 17:14:24 =~=~=~=~=~=~=~=~=~=~=~=
+
+[Phase 5] HC-06 dummy data test starting...
+Open PuTTY on Bluetooth Outgoing COM @ 115200 baud.
+
+Sent: Hello from STM32 #1
+Sent: Hello from STM32 #2
+Sent: HellCSV sent: 700, dropped: 0
+CSV sent: 750, dropped: 0
+CSV sent: 800, dropped: 0
+CSV sent: 850, dropped: 0
+CSV sent: 900, dropped: 0
+CSV sent: 950, dropped: 0
+CSV sent: 1000, dropped: 0
+CSV sent: 1050, dropped: 0
+CSV sent: 1100, dropped: 0
+CSV sent: 1150, dropped: 0
+CSV sent: 1200, dropped: 0
+CSV sent: 1250, dropped: 0
+CSV sent: 1300, dropped: 0
+CSV sent: 1350, dropped: 0
+CSV sent: 1400, dropped: 0
+CSV sent: 1450, dropped: 0
+CSV sent: 1500, dropped: 0
+CSV sent: 1550, dropped: 0
+CSV sent: 1600, dropped: 0
+CSV sent: 1650, dropped: 0
+CSV sent: 1700, dropped: 0
+CSV sent: 1750, dropped: 0
+CSV sent: 1800, dropped: 0
+CSV sent: 1850, dropped: 0
+CSV sent: 1900, dropped: 0
+CSV sent: 1950, dropped: 0
+CSV sent: 2000, dropped: 0
+CSV sent: 2050, dropped: 0
+CSV sent: 2100, dropped: 0
+CSV sent: 2150, dropped: 0
+CSV sent: 2200, dropped: 0
+CSV sent: 2250, dropped: 0
+CSV sent: 2300, dropped: 0
+CSV sent: 2350, dropped: 0
+CSV sent: 2400, dropped: 0
+CSV sent: 2450, dropped: 0
+CSV sent: 2500, dropped: 0
+CSV sent: 2550, dropped: 0
+CSV sent: 2600, dropped: 0
+CSV sent: 2650, dropped: 0
+CSV sent: 2700, dropped: 0
+CSV sent: 2750, dropped: 0
+CSV sent:

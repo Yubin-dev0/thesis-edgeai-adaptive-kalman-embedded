@@ -1,0 +1,49 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.05.13 16:50:51 =~=~=~=~=~=~=~=~=~=~=~=
+
+========== SIMPLE HC-06 TEST ==========
+USART6 baud = 9600
+PC6: mode=2, AF=8 (expect 2, 8)
+PC7: mode=2, AF=8 (expect 2, 8)
+
+Sending AT...
+AT rx_status = 3 (0=OK 3=TIMEOUT)
+AT response bytes: 0x4F 0x4B 
+AT response as string: "OK"
+
+Sending AT+BAUD8 (no CRLF)...
+BAUD rx_status = 3 (0=OK 3=TIMEOUT)
+BAUD response bytes: 0x4F 0x4B 0x31 0x31 0x35 0x32 0x30 0x30 
+BAUD response as string: "OK115200"
+========================================
+
+========== SIMPLE HC-06 TEST ==========
+USART6 baud = 9600
+PC6: mode=2, AF=8 (expect 2, 8)
+PC7: mode=2, AF=8 (expect 2, 8)
+
+Sending AT...
+AT rx_status = 3 (0=OK 3=TIMEOUT)
+AT response bytes: 
+AT response as string: ""
+
+Sending AT+BAUD8 (no CRLF)...
+BAUD rx_status = 3 (0=OK 3=TIMEOUT)
+BAUD response bytes: 
+BAUD response as string: ""
+========================================
+
+========== SIMPLE HC-06 TEST ==========
+USART6 baud = 9600
+PC6: mode=2, AF=8 (expect 2, 8)
+PC7: mode=2, AF=8 (expect 2, 8)
+
+Sending AT...
+AT rx_status = 3 (0=OK 3=TIMEOUT)
+AT response bytes: 
+AT response as string: ""
+
+Sending AT+BAUD8 (no CRLF)...
+BAUD rx_status = 3 (0=OK 3=TIMEOUT)
+BAUD response bytes: 
+BAUD response as string: ""
+========================================

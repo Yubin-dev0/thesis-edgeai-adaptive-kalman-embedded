@@ -55,10 +55,13 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
+extern I2C_HandleTypeDef hi2c1;
 extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim6;
 extern DMA_HandleTypeDef hdma_usart2_tx;
+extern DMA_HandleTypeDef hdma_usart6_tx;
 extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart6;
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -230,6 +233,20 @@ void TIM3_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles I2C1 event interrupt.
+  */
+void I2C1_EV_IRQHandler(void)
+{
+  /* USER CODE BEGIN I2C1_EV_IRQn 0 */
+
+  /* USER CODE END I2C1_EV_IRQn 0 */
+  HAL_I2C_EV_IRQHandler(&hi2c1);
+  /* USER CODE BEGIN I2C1_EV_IRQn 1 */
+
+  /* USER CODE END I2C1_EV_IRQn 1 */
+}
+
+/**
   * @brief This function handles USART2 global interrupt.
   */
 void USART2_IRQHandler(void)
@@ -255,6 +272,34 @@ void TIM6_DAC_IRQHandler(void)
   /* USER CODE BEGIN TIM6_DAC_IRQn 1 */
 
   /* USER CODE END TIM6_DAC_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA2 stream6 global interrupt.
+  */
+void DMA2_Stream6_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA2_Stream6_IRQn 0 */
+
+  /* USER CODE END DMA2_Stream6_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_usart6_tx);
+  /* USER CODE BEGIN DMA2_Stream6_IRQn 1 */
+
+  /* USER CODE END DMA2_Stream6_IRQn 1 */
+}
+
+/**
+  * @brief This function handles USART6 global interrupt.
+  */
+void USART6_IRQHandler(void)
+{
+  /* USER CODE BEGIN USART6_IRQn 0 */
+
+  /* USER CODE END USART6_IRQn 0 */
+  HAL_UART_IRQHandler(&huart6);
+  /* USER CODE BEGIN USART6_IRQn 1 */
+
+  /* USER CODE END USART6_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */
