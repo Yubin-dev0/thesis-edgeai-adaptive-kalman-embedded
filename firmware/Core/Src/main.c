@@ -2,15 +2,18 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Phase 4-B: Motor + Sensor Noise Measurement
+  * @brief          : Phase 6 Step 6 (v2): IWDG margin enlarged, init hardened
   *
-  * Purpose:
-  *   Measure VL53L0X & HC-SR04 noise while both motors run at 50% PWM.
-  *   Quantitative justification for manual-rolling decision in Phase 7.
+  * Changes from Step 6 v1:
+  *   - IWDG override after MX_IWDG_Init(): Reload 1000 -> 4000 (timeout 8s)
+  *   - Boot delay split: 2x500ms with IWDG refresh between
+  *   - IWDG refreshes every printf chunk during init/teardown
+  *   - All HAL_Delay() calls preceded by IWDG refresh
   *
-  * Trigger:  Press B1 (PC13) to start measurement.
-  * Output:   HC-06 Bluetooth (USART6, 115200 baud, PuTTY).
-  * Baseline: Phase 1 VL53L0X @ 100mm static -> sigma=1.53mm, I2C err=0.
+  * Why 8s timeout for development:
+  *   - 2s was too tight (matched HAL_Delay 2000 exactly -> race)
+  *   - 8s allows debugger breaks of up to 8s without triggering reset
+  *   - For final production code, can be reduced after stability proven
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -26,29 +29,55 @@
 
 #include "vl53l0x_api.h"
 #include "vl53l0x_platform.h"
+#include "kalman_filter.h"
 
 /* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define PHASE4B_N_SAMPLES       100     /* VL53L0X measurement count */
-#define PHASE4B_PERIOD_MS       20      /* 50Hz target */
-#define PHASE4B_HCSR04_EVERY    10      /* HC-SR04 trigger every Nth loop */
+#define PHASE6_N_TEST_LOOPS     1000U
+#define PHASE6_LOOP_BUDGET_US   4500U
 
-#define MOTOR_PWM_DUTY          32768   /* 50% of TIM1 ARR=65535 */
-#define MOTOR_STARTUP_WAIT_MS   1000    /* steady-state wait after motor ON */
+#define VL53L0X_TIMING_BUDGET_US    20000U
+#define VL53L0X_INTER_PERIOD_MS     20U
+
+#define MM_PER_PULSE            0.05397f
+#define LOOP_DT_SEC             0.005f
+#define PULSES_TO_MMPS          (MM_PER_PULSE / LOOP_DT_SEC)
+
+#define LOG_DECIMATION          4U
+#define CSV_BUF_SIZE            256U
+#define CSV_SCENARIO_ID         0U
+
+#define IWDG_REFRESH_EVERY      10U     /* refresh every 10 loops = 50ms */
+#define IWDG_RELOAD_VAL         4000U   /* 4000*64/32000 = 8.0s timeout  */
 
 /* USER CODE END PD */
 
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+
 I2C_HandleTypeDef hi2c1;
+
+IWDG_HandleTypeDef hiwdg;
+
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim6;
+
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart6;
 DMA_HandleTypeDef hdma_usart2_tx;
@@ -65,6 +94,12 @@ volatile uint8_t  echo_ready         = 0;
 VL53L0X_Dev_t  vl53l0x_dev;
 VL53L0X_DEV    pVL53L0X = &vl53l0x_dev;
 
+volatile uint8_t  loop_flag         = 0;
+volatile uint32_t loop_tick         = 0;
+volatile uint32_t isr_overrun_count = 0;
+
+static char  csv_tx_buf[CSV_BUF_SIZE];
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -80,27 +115,46 @@ static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_USART6_UART_Init(void);
+static void MX_IWDG_Init(void);
 /* USER CODE BEGIN PFP */
 
 void  DWT_Init(void);
 void  DWT_Delay_us(uint32_t us);
 uint32_t DWT_GetTick_us(void);
-void  HCSR04_Trigger(void);
 int   __io_putchar(int ch);
 
-static void Motor_Start_50pct(void);
-static void Motor_Stop(void);
-static void Wait_For_B1_Press(void);
+static void VL53L0X_Setup(void);
+static void Safe_Delay_ms(uint32_t ms);   /* HAL_Delay with periodic IWDG refresh */
 
 /* USER CODE END PFP */
 
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+
+/* USER CODE END 0 */
+
 /**
   * @brief  The application entry point.
+  * @retval int
   */
 int main(void)
 {
+
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
   HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
   SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
 
   MX_GPIO_Init();
   MX_DMA_Init();
@@ -113,278 +167,371 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_USART6_UART_Init();
+  MX_IWDG_Init();   /* IWDG starts here - subsequent code MUST refresh it */
 
   /* USER CODE BEGIN 2 */
 
+  HAL_IWDG_Refresh(&hiwdg);
   DWT_Init();
 
-  HAL_Delay(2000);  /* HC-06 boot + PuTTY connect window */
+  /* Boot delay: split 2s with refresh between (HC-06 boot + PuTTY connect) */
+  Safe_Delay_ms(1000);
+  Safe_Delay_ms(1000);
 
   printf("\r\n");
+  HAL_IWDG_Refresh(&hiwdg);
   printf("========================================\r\n");
-  printf(" Phase 4-B: Motor + Sensor Noise Test\r\n");
-  printf(" Target:  VL53L0X @ 100mm, N=%d samples\r\n", PHASE4B_N_SAMPLES);
-  printf(" Motor:   50%% PWM, both forward direction\r\n");
-  printf(" Channel: HC-06 (USART6 @ 115200)\r\n");
+  printf(" Phase 6 - Step 6 v2: KF + CSV + IWDG\r\n");
+  printf(" Target:    N=%lu loops (~5s @ 200Hz)\r\n",
+         (unsigned long)PHASE6_N_TEST_LOOPS);
+  printf(" Mode:      A (predict 200Hz, update on DataReady)\r\n");
+  printf(" KF:        Q=%.2f, R_INIT=%.1f, W=%d (Fixed KF, no AKF)\r\n",
+         KF_Q, KF_R_INIT, KF_WINDOW_SIZE);
+  printf(" CSV:       18 fields, decimation=%lu (50Hz), DMA -> USART6\r\n",
+         (unsigned long)LOG_DECIMATION);
+  printf(" IWDG:      timeout=8.0s (dev), refresh every %lu loops (50ms)\r\n",
+         (unsigned long)IWDG_REFRESH_EVERY);
+  printf(" Budget:    %lu us / loop\r\n", (unsigned long)PHASE6_LOOP_BUDGET_US);
   printf("========================================\r\n");
+  HAL_IWDG_Refresh(&hiwdg);
 
-  /* ---------------- VL53L0X initialization ---------------- */
-  printf("\r\n[INIT] VL53L0X starting up...\r\n");
+  printf("# CSV_HEADER: seq,timestamp_ms,enc_L,enc_R,pos_L_mm,pos_R_mm,"
+         "tof_dist_mm,tof_status,tof_signal_mcps,tof_ambient_mcps,"
+         "kf_estimate,kf_covariance,residual,residual_var,residual_mean,"
+         "kalman_gain,innovation_cov,scenario_id\r\n");
+  HAL_IWDG_Refresh(&hiwdg);
 
-  pVL53L0X->I2cHandle  = &hi2c1;
-  pVL53L0X->I2cDevAddr = 0x52;
+  Safe_Delay_ms(50);
 
-  VL53L0X_Error vl_status = VL53L0X_ERROR_NONE;
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8,  GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9,  GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_12, GPIO_PIN_RESET);
 
-  printf("       ResetDevice...               ");
-  vl_status = VL53L0X_ResetDevice(pVL53L0X);
-  HAL_Delay(50);
-  printf("%s\r\n", (vl_status == VL53L0X_ERROR_NONE) ? "OK" : "WARN (continuing)");
+  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+  HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
+  __HAL_TIM_SET_COUNTER(&htim2, 0);
+  __HAL_TIM_SET_COUNTER(&htim4, 0);
 
-  printf("       DataInit...                  ");
-  vl_status = VL53L0X_DataInit(pVL53L0X);
-  if (vl_status != VL53L0X_ERROR_NONE) { printf("FAIL (err=%d)\r\n", vl_status); Error_Handler(); }
-  printf("OK\r\n");
+  HAL_IWDG_Refresh(&hiwdg);
+  VL53L0X_Setup();
+  HAL_IWDG_Refresh(&hiwdg);
 
-  printf("       StaticInit...                ");
-  vl_status = VL53L0X_StaticInit(pVL53L0X);
-  if (vl_status != VL53L0X_ERROR_NONE) { printf("FAIL (err=%d)\r\n", vl_status); Error_Handler(); }
-  printf("OK\r\n");
+  KalmanFilter kf;
+  uint8_t      kf_initialised = 0;
 
-  uint8_t VhvSettings = 0, PhaseCal = 0;
-  printf("       PerformRefCalibration...     ");
-  vl_status = VL53L0X_PerformRefCalibration(pVL53L0X, &VhvSettings, &PhaseCal);
-  if (vl_status != VL53L0X_ERROR_NONE) { printf("FAIL (err=%d)\r\n", vl_status); Error_Handler(); }
-  printf("OK\r\n");
+  printf("[INIT] Starting TIM6 @ 200Hz. CSV stream begins.\r\n");
+  HAL_IWDG_Refresh(&hiwdg);
+  Safe_Delay_ms(50);
+  HAL_TIM_Base_Start_IT(&htim6);
 
-  uint32_t refSpadCount = 0;
-  uint8_t  isApertureSpads = 0;
-  printf("       PerformRefSpadManagement...  ");
-  vl_status = VL53L0X_PerformRefSpadManagement(pVL53L0X, &refSpadCount, &isApertureSpads);
-  if (vl_status != VL53L0X_ERROR_NONE) { printf("FAIL (err=%d)\r\n", vl_status); Error_Handler(); }
-  printf("OK\r\n");
+  uint32_t loop_count    = 0;
+  uint32_t overrun_loop  = 0;
+  uint64_t cycles_sum    = 0;
+  uint32_t cycles_max    = 0;
+  uint32_t cycles_min    = 0xFFFFFFFFU;
 
-  printf("       SetTimingBudget 20ms...      ");
-  vl_status = VL53L0X_SetMeasurementTimingBudgetMicroSeconds(pVL53L0X, 20000);
-  if (vl_status != VL53L0X_ERROR_NONE) { printf("FAIL (err=%d)\r\n", vl_status); Error_Handler(); }
-  printf("OK\r\n");
+  uint32_t vl_data_ready_count = 0;
+  uint32_t vl_read_ok_count    = 0;
+  uint32_t vl_status0_count    = 0;
+  uint32_t vl_i2c_err_count    = 0;
+  uint16_t vl_last_dist_mm     = 0;
+  uint8_t  vl_last_status      = 0xFF;
+  float    vl_last_signal_mcps = 0.0f;
+  float    vl_last_ambient_mcps = 0.0f;
 
-  printf("       SetDeviceMode CONTINUOUS...  ");
-  vl_status = VL53L0X_SetDeviceMode(pVL53L0X, VL53L0X_DEVICEMODE_CONTINUOUS_RANGING);
-  if (vl_status != VL53L0X_ERROR_NONE) { printf("FAIL (err=%d)\r\n", vl_status); Error_Handler(); }
-  printf("OK\r\n");
+  int16_t  enc_l_prev = 0;
+  int16_t  enc_r_prev = 0;
+  int32_t  enc_l_total = 0;
+  int32_t  enc_r_total = 0;
 
-  printf("       SetInterMeasurementPeriod... ");
-  vl_status = VL53L0X_SetInterMeasurementPeriodMilliSeconds(pVL53L0X, PHASE4B_PERIOD_MS);
-  if (vl_status != VL53L0X_ERROR_NONE) { printf("FAIL (err=%d)\r\n", vl_status); Error_Handler(); }
-  printf("OK\r\n");
+  uint32_t kf_predict_count = 0;
+  uint32_t kf_update_count  = 0;
 
-  printf("[INIT] VL53L0X ready.\r\n");
+  uint32_t csv_tx_attempts = 0;
+  uint32_t csv_tx_drops    = 0;
+  uint32_t csv_seq         = 0;
+  uint32_t boot_ms         = HAL_GetTick();
 
-  /* ---------------- TB6612FNG idle state ---------------- */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_12, GPIO_PIN_SET);  /* STBY HIGH */
-  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
-  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-  printf("[INIT] TB6612FNG STBY=HIGH, PWM=0 (idle).\r\n");
-
-  /* ---------------- Wait for B1 trigger ---------------- */
-  printf("\r\n>>> Place white target @ 100mm.\r\n");
-  printf(">>> Press B1 (blue button) to start measurement.\r\n");
-  Wait_For_B1_Press();
-
-  /* ---------------- Motor ON + steady-state wait ---------------- */
-  printf("\r\n[TEST] Motor START (both forward, 50%% PWM)\r\n");
-  Motor_Start_50pct();
-
-  printf("[TEST] Steady-state wait %d ms...\r\n", MOTOR_STARTUP_WAIT_MS);
-  HAL_Delay(MOTOR_STARTUP_WAIT_MS);
-
-  /* ---------------- Start VL53L0X continuous ranging ---------------- */
-  vl_status = VL53L0X_StartMeasurement(pVL53L0X);
-  if (vl_status != VL53L0X_ERROR_NONE) {
-      printf("[ABORT] VL53L0X_StartMeasurement failed (err=%d)\r\n", vl_status);
-      Motor_Stop();
-      Error_Handler();
-  }
-
-  /* ---------------- Measurement loop ---------------- */
-  printf("\r\n[TEST] Measurement START (N=%d)\r\n", PHASE4B_N_SAMPLES);
-  printf("       Format: idx, vl_dist_mm, vl_status, vl_signal_MCps, sr04_us\r\n");
-
-  uint32_t vl_status0_count = 0;
-  uint32_t vl_i2c_err_count = 0;
-  double   vl_sum = 0.0, vl_sum_sq = 0.0;
-  uint16_t vl_min = 0xFFFF, vl_max = 0;
-
-  uint32_t sr04_count = 0;
-  uint32_t sr04_err_count = 0;
-  double   sr04_sum_us = 0.0, sr04_sum_sq_us = 0.0;
-  uint32_t sr04_min_us = 0xFFFFFFFF, sr04_max_us = 0;
-
-  uint32_t samples_collected = 0;
-  uint32_t poll_timeout_count = 0;
-
-  while (samples_collected < PHASE4B_N_SAMPLES)
-  {
-      /* Wait for VL53L0X data ready (poll, 100ms timeout) */
-      uint8_t  data_ready = 0;
-      uint32_t poll_start = HAL_GetTick();
-      while (!data_ready && (HAL_GetTick() - poll_start) < 100)
-      {
-          vl_status = VL53L0X_GetMeasurementDataReady(pVL53L0X, &data_ready);
-          if (vl_status != VL53L0X_ERROR_NONE) {
-              vl_i2c_err_count++;
-              break;
-          }
-      }
-
-      if (!data_ready) {
-          poll_timeout_count++;
-          continue;
-      }
-
-      /* Read measurement */
-      VL53L0X_RangingMeasurementData_t m;
-      vl_status = VL53L0X_GetRangingMeasurementData(pVL53L0X, &m);
-      if (vl_status != VL53L0X_ERROR_NONE) {
-          vl_i2c_err_count++;
-          VL53L0X_ClearInterruptMask(pVL53L0X, 0);
-          continue;
-      }
-
-      samples_collected++;
-
-      float signal_mcps = (float)m.SignalRateRtnMegaCps / 65536.0f;
-
-      if (m.RangeStatus == 0) {
-          uint16_t d = m.RangeMilliMeter;
-          vl_status0_count++;
-          vl_sum    += (double)d;
-          vl_sum_sq += (double)d * (double)d;
-          if (d < vl_min) vl_min = d;
-          if (d > vl_max) vl_max = d;
-      }
-
-      /* HC-SR04 every Nth sample */
-      uint32_t sr04_us_this = 0;
-      uint8_t  sr04_valid_this = 0;
-      uint8_t  sr04_attempted = ((samples_collected % PHASE4B_HCSR04_EVERY) == 0);
-
-      if (sr04_attempted)
-      {
-          HCSR04_Trigger();
-          HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
-
-          uint32_t hs_start = HAL_GetTick();
-          while (!echo_ready && (HAL_GetTick() - hs_start) < 30) { }
-
-          if (echo_ready) {
-              sr04_us_this = echo_pulse_us;
-              sr04_valid_this = 1;
-              sr04_count++;
-              sr04_sum_us    += (double)sr04_us_this;
-              sr04_sum_sq_us += (double)sr04_us_this * (double)sr04_us_this;
-              if (sr04_us_this < sr04_min_us) sr04_min_us = sr04_us_this;
-              if (sr04_us_this > sr04_max_us) sr04_max_us = sr04_us_this;
-          } else {
-              sr04_err_count++;
-          }
-          HAL_TIM_IC_Stop_IT(&htim3, TIM_CHANNEL_1);
-      }
-
-      /* Per-sample print */
-      if (sr04_valid_this) {
-          printf("%3lu,%4u,%u,%.2f,%lu\r\n",
-                 (unsigned long)samples_collected,
-                 m.RangeMilliMeter, m.RangeStatus,
-                 signal_mcps,
-                 (unsigned long)sr04_us_this);
-      } else if (sr04_attempted) {
-          printf("%3lu,%4u,%u,%.2f,SR04_TIMEOUT\r\n",
-                 (unsigned long)samples_collected,
-                 m.RangeMilliMeter, m.RangeStatus, signal_mcps);
-      } else {
-          printf("%3lu,%4u,%u,%.2f,-\r\n",
-                 (unsigned long)samples_collected,
-                 m.RangeMilliMeter, m.RangeStatus, signal_mcps);
-      }
-
-      VL53L0X_ClearInterruptMask(pVL53L0X, 0);
-  }
-
-  /* ---------------- Stop & report ---------------- */
-  VL53L0X_StopMeasurement(pVL53L0X);
-  Motor_Stop();
-  printf("\r\n[TEST] Motor STOP, Measurement END.\r\n");
-
-  /* Statistics */
-  double vl_mean = 0.0, vl_var = 0.0, vl_std = 0.0;
-  if (vl_status0_count > 1) {
-      vl_mean = vl_sum / (double)vl_status0_count;
-      vl_var  = (vl_sum_sq / (double)vl_status0_count) - (vl_mean * vl_mean);
-      if (vl_var < 0.0) vl_var = 0.0;
-      vl_std  = sqrt(vl_var);
-  }
-
-  double sr04_mean_us = 0.0, sr04_var_us = 0.0, sr04_std_us = 0.0;
-  double sr04_mean_mm = 0.0, sr04_std_mm = 0.0;
-  if (sr04_count > 1) {
-      sr04_mean_us = sr04_sum_us / (double)sr04_count;
-      sr04_var_us  = (sr04_sum_sq_us / (double)sr04_count) - (sr04_mean_us * sr04_mean_us);
-      if (sr04_var_us < 0.0) sr04_var_us = 0.0;
-      sr04_std_us  = sqrt(sr04_var_us);
-      sr04_mean_mm = sr04_mean_us * 0.1715;  /* 343 m/s / 2 -> 0.1715 mm/us */
-      sr04_std_mm  = sr04_std_us  * 0.1715;
-  }
-
-  printf("\r\n========================================\r\n");
-  printf(" Phase 4-B Statistics\r\n");
-  printf("========================================\r\n");
-  printf(" VL53L0X (requested %lu, collected %lu)\r\n",
-         (unsigned long)PHASE4B_N_SAMPLES, (unsigned long)samples_collected);
-  printf("   Status0 count:   %lu/%lu\r\n",
-         (unsigned long)vl_status0_count, (unsigned long)samples_collected);
-  printf("   Mean dist:       %7.2f mm\r\n", vl_mean);
-  printf("   Std (sigma):     %7.2f mm\r\n", vl_std);
-  printf("   Min:             %5u mm\r\n", vl_min);
-  printf("   Max:             %5u mm\r\n", vl_max);
-  printf("   I2C errors:      %lu\r\n", (unsigned long)vl_i2c_err_count);
-  printf("   Poll timeouts:   %lu\r\n", (unsigned long)poll_timeout_count);
-  printf("\r\n");
-  printf(" HC-SR04 (every %d samples)\r\n", PHASE4B_HCSR04_EVERY);
-  printf("   Valid count:     %lu\r\n", (unsigned long)sr04_count);
-  printf("   Echo timeouts:   %lu\r\n", (unsigned long)sr04_err_count);
-  printf("   Mean pulse:      %7.2f us  (%7.2f mm)\r\n", sr04_mean_us, sr04_mean_mm);
-  printf("   Std pulse:       %7.2f us  (%7.2f mm)\r\n", sr04_std_us, sr04_std_mm);
-  if (sr04_count > 0) {
-      printf("   Min pulse:       %lu us\r\n", (unsigned long)sr04_min_us);
-      printf("   Max pulse:       %lu us\r\n", (unsigned long)sr04_max_us);
-  }
-  printf("========================================\r\n");
-  printf("\r\n Baseline (Phase 1, motor OFF): sigma=1.53 mm, I2C_err=0\r\n");
-  printf(" Delta sigma:  %+.2f mm\r\n", vl_std - 1.53);
-  printf("========================================\r\n");
-  printf("\r\n[DONE] Press RESET to run again.\r\n");
+  uint32_t iwdg_refresh_count = 0;
 
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN WHILE */
-  while (1)
+  while (loop_count < PHASE6_N_TEST_LOOPS)
   {
-      HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-      HAL_Delay(500);
-      /* USER CODE END WHILE */
-      /* USER CODE BEGIN 3 */
+      if (!loop_flag) {
+          continue;
+      }
+      loop_flag = 0;
+
+      if ((loop_count % IWDG_REFRESH_EVERY) == 0) {
+          HAL_IWDG_Refresh(&hiwdg);
+          iwdg_refresh_count++;
+      }
+
+      uint32_t t_start = DWT->CYCCNT;
+
+      int16_t enc_l_now = (int16_t)__HAL_TIM_GET_COUNTER(&htim2);
+      int16_t enc_r_now = (int16_t)__HAL_TIM_GET_COUNTER(&htim4);
+      int16_t dl = enc_l_now - enc_l_prev;
+      int16_t dr = enc_r_now - enc_r_prev;
+      enc_l_prev = enc_l_now;
+      enc_r_prev = enc_r_now;
+      enc_l_total += dl;
+      enc_r_total += dr;
+      float avg_dpulses = ((float)dl + (float)dr) * 0.5f;
+      float u_mmps      = avg_dpulses * PULSES_TO_MMPS;
+
+      if (kf_initialised) {
+          kf_predict(&kf, u_mmps);
+          kf_predict_count++;
+      }
+
+      uint8_t data_ready = 0;
+      VL53L0X_Error vl_st = VL53L0X_GetMeasurementDataReady(pVL53L0X, &data_ready);
+      if (vl_st != VL53L0X_ERROR_NONE) {
+          vl_i2c_err_count++;
+      } else if (data_ready) {
+          vl_data_ready_count++;
+          VL53L0X_RangingMeasurementData_t m;
+          vl_st = VL53L0X_GetRangingMeasurementData(pVL53L0X, &m);
+          if (vl_st != VL53L0X_ERROR_NONE) {
+              vl_i2c_err_count++;
+          } else {
+              vl_read_ok_count++;
+              vl_last_dist_mm      = m.RangeMilliMeter;
+              vl_last_status       = m.RangeStatus;
+              vl_last_signal_mcps  = (float)m.SignalRateRtnMegaCps  / 65536.0f;
+              vl_last_ambient_mcps = (float)m.AmbientRateRtnMegaCps / 65536.0f;
+              if (m.RangeStatus == 0) {
+                  vl_status0_count++;
+                  if (!kf_initialised) {
+                      kf_init(&kf, (float)m.RangeMilliMeter, KF_R_INIT, KF_R_INIT);
+                      kf_initialised = 1;
+                  } else {
+                      kf_update(&kf, (float)m.RangeMilliMeter, false);
+                      kf_update_count++;
+                  }
+              }
+          }
+          VL53L0X_ClearInterruptMask(pVL53L0X, 0);
+      }
+
+      if (kf_initialised && ((loop_count % LOG_DECIMATION) == 0)) {
+          csv_tx_attempts++;
+
+          if (huart6.gState != HAL_UART_STATE_READY) {
+              csv_tx_drops++;
+          } else {
+              float r_mean = 0.0f, r_var = 0.0f;
+              kf_get_residual_stats(&kf, &r_mean, &r_var);
+
+              float pos_l_mm = (float)enc_l_total * MM_PER_PULSE;
+              float pos_r_mm = (float)enc_r_total * MM_PER_PULSE;
+              uint32_t ts_ms = HAL_GetTick() - boot_ms;
+
+              int n = snprintf(csv_tx_buf, CSV_BUF_SIZE,
+                  "%lu,%lu,%ld,%ld,%.3f,%.3f,"
+                  "%u,%u,%.3f,%.3f,"
+                  "%.3f,%.3f,%.3f,%.3f,%.3f,"
+                  "%.6f,%.3f,%u\r\n",
+                  (unsigned long)csv_seq,
+                  (unsigned long)ts_ms,
+                  (long)enc_l_total, (long)enc_r_total,
+                  pos_l_mm, pos_r_mm,
+                  vl_last_dist_mm, vl_last_status,
+                  vl_last_signal_mcps, vl_last_ambient_mcps,
+                  kf.x, kf.P, kf.residual, r_var, r_mean,
+                  kf.K, kf.S,
+                  (unsigned)CSV_SCENARIO_ID);
+
+              if (n > 0 && n < (int)CSV_BUF_SIZE) {
+                  HAL_UART_Transmit_DMA(&huart6, (uint8_t *)csv_tx_buf, (uint16_t)n);
+                  csv_seq++;
+              }
+          }
+      }
+
+      uint32_t t_end = DWT->CYCCNT;
+
+      uint32_t cycles = t_end - t_start;
+      cycles_sum += cycles;
+      if (cycles > cycles_max) cycles_max = cycles;
+      if (cycles < cycles_min) cycles_min = cycles;
+
+      uint32_t loop_us = cycles / (HAL_RCC_GetHCLKFreq() / 1000000U);
+      if (loop_us > PHASE6_LOOP_BUDGET_US) overrun_loop++;
+
+      loop_count++;
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
+
+  HAL_TIM_Base_Stop_IT(&htim6);
+  HAL_IWDG_Refresh(&hiwdg);
+
+  /* Wait for any pending DMA TX to finish */
+  uint32_t drain_start = HAL_GetTick();
+  while (huart6.gState != HAL_UART_STATE_READY) {
+      if ((HAL_GetTick() - drain_start) > 100U) {
+          HAL_IWDG_Refresh(&hiwdg);
+          drain_start = HAL_GetTick();
+      }
+  }
+  HAL_IWDG_Refresh(&hiwdg);
+
+  VL53L0X_StopMeasurement(pVL53L0X);
+  HAL_IWDG_Refresh(&hiwdg);
+
+  uint32_t isr_overrun_final = isr_overrun_count;
+  uint32_t total_ticks       = loop_tick;
+
+  uint32_t hclk_mhz   = HAL_RCC_GetHCLKFreq() / 1000000U;
+  uint32_t mean_ns    = (uint32_t)(((cycles_sum * 1000U) / loop_count) / hclk_mhz);
+  uint32_t max_ns     = (uint32_t)(((uint64_t)cycles_max * 1000U) / hclk_mhz);
+  uint32_t min_ns     = (uint32_t)(((uint64_t)cycles_min * 1000U) / hclk_mhz);
+  uint32_t mean_us    = mean_ns / 1000U;
+  uint32_t max_us     = max_ns  / 1000U;
+  uint32_t mean_ns_r  = mean_ns % 1000U;
+  uint32_t max_ns_r   = max_ns  % 1000U;
+
+  HAL_IWDG_Refresh(&hiwdg);
+
+  printf("\r\n# ===== Phase 6 Step 6 Results =====\r\n");
+  HAL_IWDG_Refresh(&hiwdg);
+  printf("# Loops:                  %lu\r\n", (unsigned long)loop_count);
+  printf("# TIM6 ticks:             %lu\r\n", (unsigned long)total_ticks);
+  printf("# Mean body:              %lu.%03lu us\r\n",
+         (unsigned long)mean_us, (unsigned long)mean_ns_r);
+  printf("# Min body:               %lu ns\r\n", (unsigned long)min_ns);
+  printf("# Max body:               %lu.%03lu us\r\n",
+         (unsigned long)max_us, (unsigned long)max_ns_r);
+  HAL_IWDG_Refresh(&hiwdg);
+  printf("# Body overrun (>%luus): %lu\r\n",
+         (unsigned long)PHASE6_LOOP_BUDGET_US, (unsigned long)overrun_loop);
+  printf("# ISR overrun:            %lu\r\n", (unsigned long)isr_overrun_final);
+  printf("# VL53L0X DataReady:      %lu (~%lu Hz)\r\n",
+         (unsigned long)vl_data_ready_count,
+         (unsigned long)(vl_data_ready_count * 200U / loop_count));
+  printf("# VL53L0X Read OK:        %lu (status0: %lu)\r\n",
+         (unsigned long)vl_read_ok_count, (unsigned long)vl_status0_count);
+  printf("# I2C errors:             %lu\r\n", (unsigned long)vl_i2c_err_count);
+  HAL_IWDG_Refresh(&hiwdg);
+  printf("# KF predict / update:    %lu / %lu\r\n",
+         (unsigned long)kf_predict_count, (unsigned long)kf_update_count);
+  if (kf_initialised) {
+      printf("# KF final:  x=%.3f P=%.3f R=%.3f K=%.6f\r\n",
+             kf.x, kf.P, kf.R, kf.K);
+  }
+  printf("# CSV TX:    attempts=%lu  drops=%lu  seq=%lu\r\n",
+         (unsigned long)csv_tx_attempts,
+         (unsigned long)csv_tx_drops,
+         (unsigned long)csv_seq);
+  printf("# IWDG:      refreshes=%lu (every %lu loops, timeout 8s)\r\n",
+         (unsigned long)iwdg_refresh_count, (unsigned long)IWDG_REFRESH_EVERY);
+  HAL_IWDG_Refresh(&hiwdg);
+
+  int pass = 1;
+  if (overrun_loop > 0)       { pass = 0; printf("# FAIL: body overrun\r\n"); }
+  if (isr_overrun_final > 0)  { pass = 0; printf("# FAIL: ISR overrun\r\n"); }
+  if (vl_i2c_err_count > 0)   { pass = 0; printf("# FAIL: I2C errors\r\n"); }
+  if (csv_tx_drops > 0)       { pass = 0; printf("# FAIL: CSV TX drops\r\n"); }
+  if (!kf_initialised)        { pass = 0; printf("# FAIL: KF not init\r\n"); }
+  if (kf_update_count < 10)   { pass = 0; printf("# FAIL: too few KF updates\r\n"); }
+  if (pass) {
+      printf("# RESULT: PASS - KF + CSV + IWDG integrated\r\n");
+  } else {
+      printf("# RESULT: FAIL\r\n");
+  }
+  printf("# ==================================\r\n");
+  printf("# To verify IWDG trigger: pull I2C jumper, wait ~8s, expect header reprint.\r\n");
+  HAL_IWDG_Refresh(&hiwdg);
+
+  /* Idle - heartbeat LED, keep refreshing IWDG so the demo doesn't reset */
+  while (1) {
+      HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+      HAL_IWDG_Refresh(&hiwdg);
+      HAL_Delay(500);
+  }
 }
 
 /* ============================================================
- * SystemClock_Config & MX_*_Init  (unchanged from previous build)
+ * Safe_Delay_ms: HAL_Delay that periodically refreshes IWDG.
+ * Granularity: 100ms refresh interval, well below 8s timeout.
  * ============================================================ */
+static void Safe_Delay_ms(uint32_t ms)
+{
+    uint32_t start = HAL_GetTick();
+    while ((HAL_GetTick() - start) < ms) {
+        HAL_IWDG_Refresh(&hiwdg);
+        if (ms - (HAL_GetTick() - start) > 100U) {
+            HAL_Delay(100);
+        } else {
+            HAL_Delay(ms - (HAL_GetTick() - start));
+        }
+    }
+    HAL_IWDG_Refresh(&hiwdg);
+}
 
+/* ============================================================
+ * VL53L0X setup with IWDG refresh between long steps
+ * ============================================================ */
+static void VL53L0X_Setup(void)
+{
+    VL53L0X_Error vl_status = VL53L0X_ERROR_NONE;
+
+    printf("[INIT] VL53L0X starting...\r\n");
+    HAL_IWDG_Refresh(&hiwdg);
+
+    pVL53L0X->I2cHandle  = &hi2c1;
+    pVL53L0X->I2cDevAddr = 0x52;
+
+    vl_status = VL53L0X_ResetDevice(pVL53L0X);
+    HAL_IWDG_Refresh(&hiwdg);
+    Safe_Delay_ms(50);
+
+    vl_status = VL53L0X_DataInit(pVL53L0X);
+    if (vl_status != VL53L0X_ERROR_NONE) { printf("DataInit FAIL\r\n"); Error_Handler(); }
+    HAL_IWDG_Refresh(&hiwdg);
+
+    vl_status = VL53L0X_StaticInit(pVL53L0X);
+    if (vl_status != VL53L0X_ERROR_NONE) { printf("StaticInit FAIL\r\n"); Error_Handler(); }
+    HAL_IWDG_Refresh(&hiwdg);
+
+    uint8_t VhvSettings = 0, PhaseCal = 0;
+    vl_status = VL53L0X_PerformRefCalibration(pVL53L0X, &VhvSettings, &PhaseCal);
+    if (vl_status != VL53L0X_ERROR_NONE) { printf("RefCal FAIL\r\n"); Error_Handler(); }
+    HAL_IWDG_Refresh(&hiwdg);
+
+    uint32_t refSpadCount = 0;
+    uint8_t  isApertureSpads = 0;
+    vl_status = VL53L0X_PerformRefSpadManagement(pVL53L0X, &refSpadCount, &isApertureSpads);
+    if (vl_status != VL53L0X_ERROR_NONE) { printf("RefSpad FAIL\r\n"); Error_Handler(); }
+    HAL_IWDG_Refresh(&hiwdg);
+
+    vl_status = VL53L0X_SetMeasurementTimingBudgetMicroSeconds(pVL53L0X, VL53L0X_TIMING_BUDGET_US);
+    if (vl_status != VL53L0X_ERROR_NONE) { printf("TimingBudget FAIL\r\n"); Error_Handler(); }
+
+    vl_status = VL53L0X_SetDeviceMode(pVL53L0X, VL53L0X_DEVICEMODE_CONTINUOUS_RANGING);
+    if (vl_status != VL53L0X_ERROR_NONE) { printf("DeviceMode FAIL\r\n"); Error_Handler(); }
+
+    vl_status = VL53L0X_SetInterMeasurementPeriodMilliSeconds(pVL53L0X, VL53L0X_INTER_PERIOD_MS);
+    if (vl_status != VL53L0X_ERROR_NONE) { printf("InterPeriod FAIL\r\n"); Error_Handler(); }
+
+    vl_status = VL53L0X_StartMeasurement(pVL53L0X);
+    if (vl_status != VL53L0X_ERROR_NONE) { printf("StartMeasurement FAIL\r\n"); Error_Handler(); }
+
+    HAL_IWDG_Refresh(&hiwdg);
+    printf("[INIT] VL53L0X ready (continuous, 50Hz).\r\n");
+}
+
+/**
+  * @brief System Clock Configuration
+  */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -393,8 +540,9 @@ void SystemClock_Config(void)
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 4;
@@ -449,6 +597,20 @@ static void MX_I2C1_Init(void)
   hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
   hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
   if (HAL_I2C_Init(&hi2c1) != HAL_OK) { Error_Handler(); }
+}
+
+/**
+  * @brief IWDG Initialization Function
+  *        Initial Reload = 1000 (2s) - immediately overridden below to 4000 (8s)
+  *        Why override here instead of in CubeMX: avoids .ioc re-generation
+  *        for a one-line dev-mode change. For production, set in CubeMX directly.
+  */
+static void MX_IWDG_Init(void)
+{
+  hiwdg.Instance = IWDG;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_64;
+  hiwdg.Init.Reload    = IWDG_RELOAD_VAL;   /* 4000 -> 8.0s timeout */
+  if (HAL_IWDG_Init(&hiwdg) != HAL_OK) { Error_Handler(); }
 }
 
 static void MX_TIM1_Init(void)
@@ -610,6 +772,7 @@ static void MX_DMA_Init(void)
 {
   __HAL_RCC_DMA1_CLK_ENABLE();
   __HAL_RCC_DMA2_CLK_ENABLE();
+
   HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
   HAL_NVIC_SetPriority(DMA2_Stream6_IRQn, 0, 0);
@@ -629,7 +792,6 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11
                           |GPIO_PIN_12, GPIO_PIN_RESET);
 
-  /* B1 button: input, no pull (board provides external pull-up) */
   GPIO_InitStruct.Pin = B1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -670,13 +832,15 @@ void DWT_Delay_us(uint32_t us)
     while ((DWT->CYCCNT - start) < ticks) { __NOP(); }
 }
 
-void HCSR04_Trigger(void)
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-    echo_capture_state = 0;
-    echo_ready = 0;
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
-    DWT_Delay_us(10);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
+    if (htim->Instance == TIM6) {
+        if (loop_flag) {
+            isr_overrun_count++;
+        }
+        loop_flag = 1;
+        loop_tick++;
+    }
 }
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
@@ -705,61 +869,27 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
     }
 }
 
-/* printf redirect to HC-06 (USART6).
- * Phase 4-B onwards: all telemetry over Bluetooth, no USB cable required. */
 int __io_putchar(int ch)
 {
     HAL_UART_Transmit(&huart6, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
     return ch;
 }
 
-/* TB6612FNG: both motors forward, 50% PWM */
-static void Motor_Start_50pct(void)
-{
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8,  GPIO_PIN_SET);    /* AIN1 */
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9,  GPIO_PIN_RESET);  /* AIN2 */
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_SET);    /* BIN1 */
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_RESET);  /* BIN2 */
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_12, GPIO_PIN_SET);    /* STBY HIGH */
-
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, MOTOR_PWM_DUTY);
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, MOTOR_PWM_DUTY);
-}
-
-static void Motor_Stop(void)
-{
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8,  GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9,  GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_RESET);
-    /* STBY stays HIGH - no need to re-init PWM if user resets */
-}
-
-/* Block until B1 (PC13) is pressed.
- * NUCLEO B1: external pull-up, press -> GPIO_PIN_RESET. */
-static void Wait_For_B1_Press(void)
-{
-    /* Wait for stable HIGH (in case held down at boot) */
-    while (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET) {
-        HAL_Delay(10);
-    }
-    /* Wait for press */
-    while (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_SET) {
-        HAL_Delay(10);
-    }
-    HAL_Delay(50);  /* debounce */
-    printf("[B1 pressed]\r\n");
-}
-
 /* USER CODE END 4 */
 
 void Error_Handler(void)
 {
+  /* USER CODE BEGIN Error_Handler_Debug */
   __disable_irq();
-  while (1) { }
+  while (1)
+  {
+  }
+  /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
-void assert_failed(uint8_t *file, uint32_t line) { }
-#endif
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */
