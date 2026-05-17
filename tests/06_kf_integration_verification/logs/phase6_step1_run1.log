@@ -1,0 +1,53 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.05.15 13:27:26 =~=~=~=~=~=~=~=~=~=~=~=
+
+========================================
+ Phase 6 - Step 1: 200Hz Loop Skeleton
+ Target:  N=1000 loops, empty body
+ Budget:  4500 us / loop (5ms - 500us headroom)
+ Channel: HC-06 (USART6 @ 115200)
+========================================
+[INIT] TB6612FNG STBY=LOW (motors disabled for Phase 6).
+[INIT] Starting TIM6 @ 200Hz...
+[TEST] Profiling 1000 empty loops...
+
+========================================
+ Phase 6 Step 1 - Results
+========================================
+ Loops executed:        1000
+ TIM6 ticks (total):    1000
+ Mean loop time:        0 us
+ Min  loop time:        0 us
+ Max  loop time:        0 us
+ Body overrun (>4500us): 0 / 1000
+ ISR overrun (flag=1):  0
+========================================
+ RESULT: PASS - 200Hz loop holds
+========================================
+
+[DONE] Press RESET to run again.
+
+========================================
+ Phase 6 - Step 1: 200Hz Loop Skeleton
+ Target:  N=1000 loops, empty body
+ Budget:  4500 us / loop (5ms - 500us headroom)
+ Channel: HC-06 (USART6 @ 115200)
+========================================
+[INIT] TB6612FNG STBY=LOW (motors disabled for Phase 6).
+[INIT] Starting TIM6 @ 200Hz...
+[TEST] Profiling 1000 empty loops...
+
+========================================
+ Phase 6 Step 1 - Results
+========================================
+ Loops executed:        1000
+ TIM6 ticks (total):    1000
+ Mean loop time:        0 us
+ Min  loop time:        0 us
+ Max  loop time:        0 us
+ Body overrun (>4500us): 0 / 1000
+ ISR overrun (flag=1):  0
+========================================
+ RESULT: PASS - 200Hz loop holds
+========================================
+
+[DONE] Press RESET to run again.

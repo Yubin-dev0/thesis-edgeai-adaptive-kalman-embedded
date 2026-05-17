@@ -1,0 +1,181 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.05.15 13:39:42 =~=~=~=~=~=~=~=~=~=~=~=
+
+========================================
+ Phase 6 - Step 2: Sensors + 200Hz Loop
+ Target:  N=1000 loops (~5s @ 200Hz)
+ Sensors: VL53L0X continuous, encoders TIM2/TIM4
+ Budget:  4500 us / loop
+========================================
+[INIT] TB6612FNG STBY=LOW (motors disabled for Phase 6).
+[INIT] Encoders started (TIM2=left, TIM4=right).
+[INIT] VL53L0X starting...
+       DataInit... OK
+       StaticInit... OK
+       PerformRefCalibration... OK
+       PerformRefSpadManagement... OK
+       SetTimingBudget 20000us... OK
+       SetDeviceMode CONTINUOUS... OK
+       InterMeasurementPeriod 20ms... OK
+       StartMeasurement... OK
+[INIT] VL53L0X ready (continuous, 50Hz).
+[INIT] Starting TIM6 @ 200Hz...[ 100] body=391972 ns | enc L=     0 R=     0 | tof d= 130 s=0 sig=22.40 | rdy=28 ok=28 err=0
+[ 200] body=391988 ns | enc L=     0 R=     0 | tof d= 125 s=0 sig=22.40 | rdy=55 ok=55 err=0
+[ 300] body=391977 ns | enc L=     0 R=     0 | tof d= 130 s=0 sig=22.55 | rdy=83 ok=83 err=0
+[ 400] body=2792366 ns | enc L=     0 R=     0 | tof d= 131 s=0 sig=22.14 | rdy=111 ok=111 err=0
+[ 500] body=391988 ns | enc L=     0 R=     0 | tof d= 129 s=0 sig=22.49 | rdy=138 ok=138 err=0
+[ 600] body=391983 ns | enc L=     0 R=     0 | tof d= 132 s=0 sig=22.61 | rdy=166 ok=166 err=0
+[ 700] body=2792122 ns | enc L=     0 R=     0 | tof d= 127 s=0 sig=22.78 | rdy=194 ok=194 err=0
+[ 800] body=2792516 ns | enc L=     0 R=     0 | tof d= 131 s=0 sig=22.56 | rdy=222 ok=222 err=0
+[ 900] body=391972 ns | enc L=     0 R=     0 | tof d= 133 s=0 sig=22.64 | rdy=249 ok=249 err=0
+
+========================================
+ Phase 6 Step 2 - Results
+========================================
+ Loops executed:           1000
+ TIM6 ticks (total):       1003
+
+ Loop body timing (DWT cycles @ 180MHz):
+   Mean:  1056.945 us  (1056945 ns)
+   Min:   391966 ns
+   Max:   2792.533 us  (2792533 ns)
+   Body overrun (>4500us):  0 / 1000
+   ISR overrun (flag=1):  3
+
+ VL53L0X:
+   DataReady hits:        277 / 1000 loops (~55 Hz effective)
+   Read OK:               277
+   Status==0 (valid):     277
+   I2C errors:            0
+   Last distance:         130 mm (status=0, sig=22.42 MCps)
+
+ Encoders (final raw count, 16-bit signed):
+   TIM2 (left):           0
+   TIM4 (right):          0
+========================================
+ FAIL: ISR overrun
+ RESULT: FAIL
+========================================
+
+[DONE] Press RESET to run again.
+
+========================================
+ Phase 6 - Step 2: Sensors + 200Hz Loop
+ Target:  N=1000 loops (~5s @ 200Hz)
+ Sensors: VL53L0X continuous, encoders TIM2/TIM4
+ Budget:  4500 us / loop
+========================================
+[INIT] TB6612FNG STBY=LOW (motors disabled for Phase 6).
+[INIT] Encoders started (TIM2=left, TIM4=right).
+[INIT] VL53L0X starting...
+       DataInit... OK
+       StaticInit... OK
+       PerformRefCalibration... OK
+       PerformRefSpadManagement... OK
+       SetTimingBudget 20000us... OK
+       SetDeviceMode CONTINUOUS... OK
+       InterMeasurementPeriod 20ms... OK
+       StartMeasurement... OK
+[INIT] VL53L0X ready (continuous, 50Hz).
+[INIT] Starting TIM6 @ 200Hz...
+[TEST] Running 1000 loops...
+[   0] body=391972 ns | enc L=     0 R=     0 | tof d=   0 s=255 sig=0.00 | rdy=0 ok=0 err=0
+[ 100] body=391972 ns | enc L=     0 R=     0 | tof d= 128 s=0 sig=23.03 | rdy=28 ok=28 err=0
+[ 200] body=391983 ns | enc L=     0 R=     0 | tof d= 128 s=0 sig=22.37 | rdy=55 ok=55 err=0
+[ 300] body=391983 ns | enc L=     0 R=     0 | tof d= 130 s=0 sig=22.52 | rdy=83 ok=83 err=0
+[ 400] body=2792461 ns | enc L=     0 R=     0 | tof d= 128 s=0 sig=22.49 | rdy=111 ok=111 err=0
+[ 500] body=391977 ns | enc L=     0 R=     0 | tof d= 133 s=0 sig=22.21 | rdy=138 ok=138 err=0
+[ 600] body=391972 ns | enc L=     0 R=     0 | tof d= 128 s=0 sig=22.62 | rdy=166 ok=166 err=0
+[ 700] body=2791950 ns | enc L=     0 R=     0 | tof d= 128 s=0 sig=22.62 | rdy=194 ok=194 err=0
+[ 800] body=2792033 ns | enc L=     0 R=     0 | tof d= 128 s=0 sig=22.67 | rdy=222 ok=222 err=0
+[ 900] body=391977 ns | enc L=     0 R=     0 | tof d= 130 s=0 sig=22.42 | rdy=249 ok=249 err=0
+
+========================================
+ Phase 6 Step 2 - Results
+========================================
+ Loops executed:           1000
+ TIM6 ticks (total):       1003
+
+ Loop body timing (DWT cycles @ 180MHz):
+   Mean:  1056.929 us  (1056929 ns)
+   Min:   391966 ns
+   Max:   2792.527 us  (2792527 ns)
+   Body overrun (>4500us):  0 / 1000
+   ISR overrun (flag=1):  3
+
+ VL53L0X:
+   DataReady hits:        277 / 1000 loops (~55 Hz effective)
+   Read OK:               277
+   Status==0 (valid):     277
+   I2C errors:            0
+   Last distance:         125 mm (status=0, sig=22.39 MCps)
+
+ Encoders (final raw count, 16-bit signed):
+   TIM2 (left):           0
+   TIM4 (right):          0
+========================================
+ FAIL: ISR overrun
+ RESULT: FAIL
+========================================
+
+[DONE] Press RESET to run again.
+
+========================================
+ Phase 6 - Step 2: Sensors + 200Hz Loop
+ Target:  N=1000 loops (~5s @ 200Hz)
+ Sensors: VL53L0X continuous, encoders TIM2/TIM4
+ Budget:  4500 us / loop
+========================================
+[INIT] TB6612FNG STBY=LOW (motors disabled for Phase 6).
+[INIT] Encoders started (TIM2=left, TIM4=right).
+[INIT] VL53L0X starting...
+       DataInit... OK
+       StaticInit... OK
+       PerformRefCalibration... OK
+       PerformRefSpadManagement... OK
+       SetTimingBudget 20000us... OK
+       SetDeviceMode CONTINUOUS... OK
+       InterMeasurementPeriod 20ms... OK
+       StartMeasurement... OK
+[INIT] VL53L0X ready (continuous, 50Hz).
+[INIT] Starting TIM6 @ 200Hz...
+[TEST] Running 1000 loops...
+[   0] body=391972 ns | enc L=     0 R=     0 | tof d=   0 s=255 sig=0.00 | rdy=0 ok=0 err=0
+[ 100] body=391972 ns | enc L=     0 R=     0 | tof d= 129 s=0 sig=22.37 | rdy=28 ok=28 err=0
+[ 200] body=391977 ns | enc L=     0 R=     0 | tof d= 127 s=0 sig=22.41 | rdy=55 ok=55 err=0
+[ 300] body=391972 ns | enc L=     0 R=     0 | tof d= 123 s=0 sig=23.02 | rdy=83 ok=83 err=0
+[ 400] body=2792038 ns | enc L=     0 R=     0 | tof d= 129 s=0 sig=23.09 | rdy=111 ok=111 err=0
+[ 500] body=391977 ns | enc L=     0 R=     0 | tof d= 128 s=0 sig=23.30 | rdy=138 ok=138 err=0
+[ 600] body=391977 ns | enc L=     0 R=     0 | tof d= 128 s=0 sig=22.90 | rdy=166 ok=166 err=0
+[ 700] body=2791944 ns | enc L=     0 R=     0 | tof d= 130 s=0 sig=22.61 | rdy=194 ok=194 err=0
+[ 800] body=391977 ns | enc L=     0 R=     0 | tof d= 126 s=0 sig=23.19 | rdy=221 ok=221 err=0
+[ 900] body=391988 ns | enc L=     0 R=     0 | tof d= 129 s=0 sig=22.22 | rdy=249 ok=249 err=0
+
+========================================
+ Phase 6 Step 2 - Results
+========================================
+ Loops executed:           1000
+ TIM6 ticks (total):       1002
+
+ Loop body timing (DWT cycles @ 180MHz):
+   Mean:  1054.530 us  (1054530 ns)
+   Min:   391955 ns
+   Max:   2792.527 us  (2792527 ns)
+   Body overrun (>4500us):  0 / 1000
+   ISR overrun (flag=1):  2
+
+ VL53L0X:
+   DataReady hits:        276 / 1000 loops (~55 Hz effective)
+   Read OK:               276
+   Status==0 (valid):     276
+   I2C errors:            0
+   Last distance:         127 mm (status=0, sig=22.45 MCps)
+
+ Encoders (final raw count, 16-bit signed):
+   TIM2 (left):           0
+   TIM4 (right):          0
+========================================
+ FAIL: ISR overrun
+ RESULT: FAIL
+========================================
+
+[DONE] Press RESET to run again.

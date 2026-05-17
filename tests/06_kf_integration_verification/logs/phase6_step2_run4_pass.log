@@ -1,0 +1,157 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.05.15 13:42:53 =~=~=~=~=~=~=~=~=~=~=~=
+
+========================================
+ Phase 6 - Step 2: Sensors + 200Hz Loop
+ Target:  N=1000 loops (~5s @ 200Hz)
+ Sensors: VL53L0X continuous, encoders TIM2/TIM4
+ Budget:  4500 us / loop
+========================================
+[INIT] TB6612FNG STBY=LOW (motors disabled for Phase 6).
+[INIT] Encoders started (TIM2=left, TIM4=right).
+[INIT] VL53L0X starting...
+       DataInit... OK
+       StaticInit... OK
+       PerformRefCalibration... OK
+       PerformRefSpadManagement... OK
+       SetTimingBudget 20000us... OK
+       SetDeviceMode CONTINUOUS... OK
+       InterMeasurementPeriod 20ms... OK
+       StartMeasurement... OK
+[INIT] VL53L0X ready (continuous, 50Hz).
+[INIT] Starting TIM6 @ 200Hz...
+[TEST] Running 1000 loops...
+[   0] body=391972 ns | enc L=     0 R=     0 | tof d=   0 s=255 sig=0.00 | rdy=0 ok=0 err=0
+[ 500] body=391977 ns | enc L=     0 R=     0 | tof d= 126 s=0 sig=22.53 | rdy=138 ok=138 err=0
+
+========================================
+ Phase 6 Step 2 - Results
+========================================
+ Loops executed:           1000
+ TIM6 ticks (total):       1000
+
+ Loop body timing (DWT cycles @ 180MHz):
+   Mean:  1054.470 us  (1054470 ns)
+   Min:   391972 ns
+   Max:   2792.533 us  (2792533 ns)
+   Body overrun (>4500us):  0 / 1000
+   ISR overrun (flag=1):  0
+
+ VL53L0X:
+   DataReady hits:        276 / 1000 loops (~55 Hz effective)
+   Read OK:               276
+   Status==0 (valid):     276
+   I2C errors:            0
+   Last distance:         130 mm (status=0, sig=22.84 MCps)
+
+ Encoders (final raw count, 16-bit signed):
+   TIM2 (left):           0
+   TIM4 (right):          0
+========================================
+ RESULT: PASS - sensors integrated into 200Hz loop
+========================================
+
+[DONE] Press RESET to run again.
+
+========================================
+ Phase 6 - Step 2: Sensors + 200Hz Loop
+ Target:  N=1000 loops (~5s @ 200Hz)
+ Sensors: VL53L0X continuous, encoders TIM2/TIM4
+ Budget:  4500 us / loop
+========================================
+[INIT] TB6612FNG STBY=LOW (motors disabled for Phase 6).
+[INIT] Encoders started (TIM2=left, TIM4=right).
+[INIT] VL53L0X starting...
+       DataInit... OK
+       StaticInit... OK
+       PerformRefCalibration... OK
+       PerformRefSpadManagement... OK
+       SetTimingBudget 20000us... OK
+       SetDeviceMode CONTINUOUS... OK
+       InterMeasurementPeriod 20ms... OK
+       StartMeasurement... OK
+[INIT] VL53L0X ready (continuous, 50Hz).
+[INIT] Starting TIM6 @ 200Hz...
+[TEST] Running 1000 loops...
+[   0] body=391977 ns | enc L=     0 R=     0 | tof d=   0 s=255 sig=0.00 | rdy=0 ok=0 err=0
+[ 500] body=391977 ns | enc L=     0 R=     0 | tof d= 127 s=0 sig=23.05 | rdy=138 ok=138 err=0
+
+========================================
+ Phase 6 Step 2 - Results
+========================================
+ Loops executed:           1000
+ TIM6 ticks (total):       1000
+
+ Loop body timing (DWT cycles @ 180MHz):
+   Mean:  1054.459 us  (1054459 ns)
+   Min:   391972 ns
+   Max:   2792.527 us  (2792527 ns)
+   Body overrun (>4500us):  0 / 1000
+   ISR overrun (flag=1):  0
+
+ VL53L0X:
+   DataReady hits:        276 / 1000 loops (~55 Hz effective)
+   Read OK:               276
+   Status==0 (valid):     276
+   I2C errors:            0
+   Last distance:         124 mm (status=0, sig=23.41 MCps)
+
+ Encoders (final raw count, 16-bit signed):
+   TIM2 (left):           0
+   TIM4 (right):          0
+========================================
+ RESULT: PASS - sensors integrated into 200Hz loop
+========================================
+
+[DONE] Press RESET to run again.
+
+========================================
+ Phase 6 - Step 2: Sensors + 200Hz Loop
+ Target:  N=1000 loops (~5s @ 200Hz)
+ Sensors: VL53L0X continuous, encoders TIM2/TIM4
+ Budget:  4500 us / loop
+========================================
+[INIT] TB6612FNG STBY=LOW (motors disabled for Phase 6).
+[INIT] Encoders started (TIM2=left, TIM4=right).
+[INIT] VL53L0X starting...
+       DataInit... OK
+       StaticInit... OK
+       PerformRefCalibration... OK
+       PerformRefSpadManagement... OK
+       SetTimingBudget 20000us... OK
+       SetDeviceMode CONTINUOUS... OK
+       InterMeasurementPeriod 20ms... OK
+       StartMeasurement... OK
+[INIT] VL53L0X ready (continuous, 50Hz).
+[INIT] Starting TIM6 @ 200Hz...
+[TEST] Running 1000 loops...
+[   0] body=391977 ns | enc L=     0 R=     0 | tof d=   0 s=255 sig=0.00 | rdy=0 ok=0 err=0
+[ 500] body=391977 ns | enc L=     0 R=     0 | tof d= 130 s=0 sig=23.53 | rdy=138 ok=138 err=0
+
+========================================
+ Phase 6 Step 2 - Results
+========================================
+ Loops executed:           1000
+ TIM6 ticks (total):       1000
+
+ Loop body timing (DWT cycles @ 180MHz):
+   Mean:  1054.466 us  (1054466 ns)
+   Min:   391972 ns
+   Max:   2792.527 us  (2792527 ns)
+   Body overrun (>4500us):  0 / 1000
+   ISR overrun (flag=1):  0
+
+ VL53L0X:
+   DataReady hits:        276 / 1000 loops (~55 Hz effective)
+   Read OK:               276
+   Status==0 (valid):     276
+   I2C errors:            0
+   Last distance:         127 mm (status=0, sig=22.89 MCps)
+
+ Encoders (final raw count, 16-bit signed):
+   TIM2 (left):           0
+   TIM4 (right):          0
+========================================
+ RESULT: PASS - sensors integrated into 200Hz loop
+========================================
+
+[DONE] Press RESET to run again.

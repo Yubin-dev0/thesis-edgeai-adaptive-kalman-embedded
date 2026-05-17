@@ -1,0 +1,192 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.05.15 13:54:22 =~=~=~=~=~=~=~=~=~=~=~=
+
+========================================
+ Phase 6 - Step 3: Sensors + KF
+ Target:   N=1000 loops (~5s @ 200Hz)
+ Mode:     A (predict 200Hz, update on DataReady)
+ KF init:  Q=1.00, R_INIT=400.0, W=20
+ Encoder:  MM_PER_PULSE=0.05397, dt=0.0050s
+ Budget:   4500 us / loop
+========================================
+[INIT] TB6612FNG STBY=LOW (motors disabled).
+[INIT] Encoders started (TIM2=left, TIM4=right).
+[INIT] VL53L0X starting...
+       DataInit... OK
+       StaticInit... OK
+       PerformRefCalibration... OK
+       PerformRefSpadManagement... OK
+       SetTimingBudget 20000us... OK
+       SetDeviceMode CONTINUOUS... OK
+       InterMeasurementPeriod 20ms... OK
+       StartMeasurement... OK
+[INIT] VL53L0X ready (continuous, 50Hz).
+[INIT] Starting TIM6 @ 200Hz...
+[TEST] Running 1000 loops...
+[   0] body=392300 ns | enc L=     0 R=     0 | tof d=   0 s=255 sig= 0.00 | x=   0.00 P=    0.00 R=   0.00 K=0.0000 res=  +0.00 | rb n= 0 mean= +0.00 var=   0.00 | pred=0 upd=0 err=0
+[ 500] body=2794655 ns | enc L=     0 R=     0 | tof d= 127 s=0 sig=23.00 | x= 127.41 P=   19.51 R= 400.00 K=0.0488 res=  -0.43 | rb n=20 mean= -0.29 var=   7.92 | pred=499 upd=138 err=0
+
+========================================
+ Phase 6 Step 3 - Results
+========================================
+ Loops executed:           1000
+ TIM6 ticks (total):       1005
+
+ Loop body timing (DWT cycles @ 180MHz):
+   Mean:  1058.132 us
+   Min:   392300 ns
+   Max:   2798.150 us
+   Body overrun (>4500us):  0 / 1000
+   ISR overrun (flag=1):  5
+
+ VL53L0X:
+   DataReady hits:        277 / 1000 (~55 Hz)
+   Read OK / Status==0:   277 / 277
+   I2C errors:            0
+   Last distance:         131 mm (status=0, sig=22.81 MCps)
+
+ KalmanFilter:
+   Initialised:           YES
+   Predict calls:         998
+   Update calls:          276
+   Final state:
+     x  = 128.192 mm
+     P  = 19.506 mm^2
+     R  = 400.000 mm^2 (fixed)
+     K  = 0.048766
+     S  = 420.506
+     residual = +2.952 mm
+   Residual buffer: count=20/20, mean=-0.059, var=2.928 (full)
+
+ Encoders (total signed pulse count):
+   TIM2 (left):           0
+   TIM4 (right):          0
+========================================
+ FAIL: ISR overrun
+ RESULT: FAIL
+=
+========================================
+ Phase 6 - Step 3: Sensors + KF
+ Target:   N=1000 loops (~5s @ 200Hz)
+ Mode:     A (predict 200Hz, update on DataReady)
+ KF init:  Q=1.00, R_INIT=400.0, W=20
+ Encoder:  MM_PER_PULSE=0.05397, dt=0.0050s
+ Budget:   4500 us / loop
+========================================
+[INIT] TB6612FNG STBY=LOW (motors disabled).
+[INIT] Encoders started (TIM2=left, TIM4=right).
+[INIT] VL53L0X starting...
+       DataInit... OK
+       StaticInit... OK
+       PerformRefCalibration... OK
+       PerformRefSpadManagement... OK
+       SetTimingBudget 20000us... OK
+       SetDeviceMode CONTINUOUS... OK
+       InterMeasurementPeriod 20ms... OK
+       StartMeasurement... OK
+[INIT] VL53L0X ready (continuous, 50Hz).
+[INIT] Starting TIM6 @ 200Hz...
+[TEST] Running 1000 loops...
+[   0] body=392294 ns | enc L=     0 R=     0 | tof d=   0 s=255 sig= 0.00 | x=   0.00 P=    0.00 R=   0.00 K=0.0000 res=  +0.00 | rb n= 0 mean= +0.00 var=   0.00 | pred=0 upd=0 err=0
+[ 500] body=2794777 ns | enc L=     0 R=     0 | tof d= 125 s=0 sig=23.03 | x= 128.09 P=   19.51 R= 400.00 K=0.0488 res=  -3.25 | rb n=20 mean= +0.27 var=   6.02 | pred=499 upd=138 err=0
+
+========================================
+ Phase 6 Step 3 - Results
+========================================
+ Loops executed:           1000
+ TIM6 ticks (total):       1005
+
+ Loop body timing (DWT cycles @ 180MHz):
+   Mean:  1058.166 us
+   Min:   392294 ns
+   Max:   2797.427 us
+   Body overrun (>4500us):  0 / 1000
+   ISR overrun (flag=1):  5
+
+ VL53L0X:
+   DataReady hits:        277 / 1000 (~55 Hz)
+   Read OK / Status==0:   277 / 277
+   I2C errors:            0
+   Last distance:         130 mm (status=0, sig=23.09 MCps)
+
+ KalmanFilter:
+   Initialised:           YES
+   Predict calls:         998
+   Update calls:          276
+   Final state:
+     x  = 128.082 mm
+     P  = 19.506 mm^2
+     R  = 400.000 mm^2 (fixed)
+     K  = 0.048766
+     S  = 420.506
+     residual = +2.017 mm
+   Residual buffer: count=20/20, mean=-0.263, var=7.889 (full)
+
+ Encoders (total signed pulse count):
+   TIM2 (left):          FAIL
+========================================
+
+[DONE] Press RESET to run again.
+
+========================================
+ Phase 6 - Step 3: Sensors + KF
+ Target:   N=1000 loops (~5s @ 200Hz)
+ Mode:     A (predict 200Hz, update on DataReady)
+ KF init:  Q=1.00, R_INIT=400.0, W=20
+ Encoder:  MM_PER_PULSE=0.05397, dt=0.0050s
+ Budget:   4500 us / loop
+========================================
+[INIT] TB6612FNG STBY=LOW (motors disabled).
+[INIT] Encoders started (TIM2=left, TIM4=right).
+[INIT] VL53L0X starting...
+       DataInit... OK
+       StaticInit... OK
+       PerformRefCalibration... OK
+       PerformRefSpadManagement... OK
+       SetTimingBudget 20000us... OK
+       SetDeviceMode CONTINUOUS... OK
+       InterMeasurementPeriod 20ms... OK
+       StartMeasurement... OK
+[INIT] VL53L0X ready (continuous, 50Hz).
+[INIT] Starting TIM6 @ 200Hz...
+[TEST] Running 1000 loops...
+[   0] body=392300 ns | enc L=     0 R=     0 | tof d=   0 s=255 sig= 0.00 | x=   0.00 P=    0.00 R=   0.00 K=0.0000 res=  +0.00 | rb n= 0 mean= +0.00 var=   0.00 | pred=0 upd=0 err=0
+[ 500] body=392794 ns | enc L=     0 R=     0 | tof d= 128 s=0 sig=22.16 | x= 128.36 P=   19.51 R= 400.00 K=0.0488 res=  -0.38 | rb n=20 mean= +0.24 var=   6.69 | pred=499 upd=138 err=0
+
+========================================
+ Phase 6 Step 3 - Results
+========================================
+ Loops executed:           1000
+ TIM6 ticks (total):       1004
+
+ Loop body timing (DWT cycles @ 180MHz):
+   Mean:  1058.182 us
+   Min:   392300 ns
+   Max:   2798.327 us
+   Body overrun (>4500us):  0 / 1000
+   ISR overrun (flag=1):  4
+
+ VL53L0X:
+   DataReady hits:        277 / 1000 (~55 Hz)
+   Read OK / Status==0:   277 / 277
+   I2C errors:            0
+   Last distance:         128 mm (status=0, sig=22.53 MCps)
+
+ KalmanFilter:
+   Initialised:           YES
+   Predict calls:         998
+   Update calls:          276
+   Final state:
+     x  = 127.754 mm
+     P  = 19.506 mm^2
+     R  = 400.000 mm^2 (fixed)
+     K  = 0.048766
+     S  = 420.506
+     residual = +0.259 mm
+   Residual buffer: count=20/20, mean=+0.311, var=3.199 (full)
+
+ Encoders (total signed pulse count):
+   TIM2 (left):           0
+   TIM4 (right):          0
+========================================
+ FAIL: ISR overrun
+ RESULT: F
