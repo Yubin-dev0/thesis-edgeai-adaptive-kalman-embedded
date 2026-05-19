@@ -14,4 +14,5 @@ firmware/.settings/
 # TinyML artifacts
 tools/tinyml/*.keras
 tools/tinyml/data/
-tools/tinyml/__pycache__/"*.launch" 
+tools/tinyml/__pycache__/
+*.launch 
