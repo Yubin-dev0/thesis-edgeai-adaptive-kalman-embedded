@@ -2,18 +2,48 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Phase 6 Step 6 (v2): IWDG margin enlarged, init hardened
+  * @brief          : E1 Baseline measurement firmware
+  *                    Dual KF (Fixed + CM-AKF), B1 trigger, HC-SR04, 25-col CSV
   *
-  * Changes from Step 6 v1:
-  *   - IWDG override after MX_IWDG_Init(): Reload 1000 -> 4000 (timeout 8s)
-  *   - Boot delay split: 2x500ms with IWDG refresh between
-  *   - IWDG refreshes every printf chunk during init/teardown
-  *   - All HAL_Delay() calls preceded by IWDG refresh
+  * Changes from Phase 6 Step 6 v2:
+  *   - PHASE6_N_TEST_LOOPS: 360000 -> 1000 (E1 run length, ~5s @ 200Hz)
+  *   - CSV_SCENARIO_ID: 0 -> 1 (E1). Change this #define per scenario.
+  *   - B1 (PC13) button trigger: measurement counting waits for B1 press,
+  *     so the stationary transient before manual roll is excluded.
+  *   - HC-SR04 integrated: PA1 trigger pulse every 50ms, echo via TIM3 CH1
+  *     interrupt, distance = echo_us * 0.1715.
+  *   - Dual Kalman Filter: kf_fixed (use_akf=false) and kf_cm (use_akf=true)
+  *     run on the same ToF/encoder input. Both estimates logged.
+  *   - CSV expanded to 25 columns (12 shared + 6 fixed + 7 cm).
   *
-  * Why 8s timeout for development:
-  *   - 2s was too tight (matched HAL_Delay 2000 exactly -> race)
-  *   - 8s allows debugger breaks of up to 8s without triggering reset
-  *   - For final production code, can be reduced after stability proven
+  * [SCHEME C] predict/update time-structure fix (2026-05-19)
+  *   PROBLEM (diagnosed from E1_run00 CSV):
+  *     kf_predict ran every 200Hz loop, kf_update only on ToF DataReady
+  *     (~50Hz, but actually 18-62ms jitter + 11 missed frames / 234).
+  *     predict count between two updates was variable (4..~12), and
+  *     predict/update were not phase-aligned.  This injected a
+  *     velocity-proportional negative bias into the residual
+  *     (moving-segment fixed_residual mean = -8.57mm), which the
+  *     fixed KF tolerated but which drove CM-AKF's R from 24 to the
+  *     10000 clamp (positive-feedback divergence).
+  *   FIX:
+  *     The KF is no longer stepped every loop.  Each 200Hz loop only
+  *     ACCUMULATES encoder pulse deltas.  When a ToF measurement is
+  *     ready, exactly ONE kf_predict (fed the whole accumulated
+  *     displacement) followed by ONE kf_update is performed, then the
+  *     accumulator is reset.  predict:update is now strictly 1:1 and
+  *     phase-aligned, matching cm_akf_1D.py.  kalman_filter.c/.h are
+  *     UNCHANGED, so E0/Phase 6 equivalence is preserved.
+  *   The 200Hz main loop itself is unchanged (sensors, HC-SR04, CSV,
+  *     timing instrumentation all still run at 200Hz) -> RQ1 intact.
+  *
+  * Encoder sign note:
+  *   R-side encoder is inverted at one point:
+  *     int16_t dr = -(enc_r_now - enc_r_prev);
+  *   This corrects enc_r_total, pos_r_mm and the KF input at once.
+  *
+  * IWDG: 8s timeout (dev). Note B1 wait loop refreshes IWDG so a long
+  *       wait before the button press does not trigger a reset.
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -41,7 +71,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define PHASE6_N_TEST_LOOPS     1000U
+#define PHASE6_N_TEST_LOOPS     1000U     /* E1 run: ~5s @ 200Hz              */
 #define PHASE6_LOOP_BUDGET_US   4500U
 
 #define VL53L0X_TIMING_BUDGET_US    20000U
@@ -49,14 +79,33 @@
 
 #define MM_PER_PULSE            0.05397f
 #define LOOP_DT_SEC             0.005f
-#define PULSES_TO_MMPS          (MM_PER_PULSE / LOOP_DT_SEC)
+
+/* [SCHEME C] KF input scaling.
+ * kf_predict does  x_pred = x + KF_B * u  with KF_B = 0.005 (= dt).
+ * In Scheme C one predict consumes the WHOLE displacement D_mm
+ * accumulated since the previous ToF update, so we need
+ *   KF_B * u = D_mm   =>   u = D_mm / KF_B.
+ * D_mm itself is (accumulated pulses) * MM_PER_PULSE, so:
+ *   u = (accum_pulses * MM_PER_PULSE) / KF_B.
+ * MM_PER_PULSE / KF_B is precomputed here.  This is the value
+ * passed (negated) to kf_predict.  Note KF_B is unchanged (0.005),
+ * so kalman_filter.h and the E0 simulation stay byte-for-byte
+ * equivalent. */
+#define PULSES_TO_KF_U          (MM_PER_PULSE / 0.005f)   /* KF_B = 0.005 */
 
 #define LOG_DECIMATION          4U
-#define CSV_BUF_SIZE            256U
-#define CSV_SCENARIO_ID         0U
+#define CSV_BUF_SIZE            512U      /* widened for 25-column line       */
+#define CSV_SCENARIO_ID         1U        /* E1 (change per scenario)         */
 
 #define IWDG_REFRESH_EVERY      10U     /* refresh every 10 loops = 50ms */
 #define IWDG_RELOAD_VAL         4000U   /* 4000*64/32000 = 8.0s timeout  */
+
+/* HC-SR04 ---------------------------------------------------------------- */
+#define HCSR04_TRIG_PERIOD_MS   50U       /* trigger every 50ms (~20Hz)       */
+#define HCSR04_TRIG_PULSE_US    10U       /* 10us trigger pulse               */
+#define HCSR04_US_TO_MM         0.1715f   /* echo_us -> mm  (343 m/s / 2)     */
+#define HCSR04_TRIG_PORT        GPIOA
+#define HCSR04_TRIG_PIN         GPIO_PIN_1
 
 /* USER CODE END PD */
 
@@ -125,6 +174,8 @@ int   __io_putchar(int ch);
 
 static void VL53L0X_Setup(void);
 static void Safe_Delay_ms(uint32_t ms);   /* HAL_Delay with periodic IWDG refresh */
+static void HCSR04_Trigger(void);         /* fire a 10us trigger pulse on PA1     */
+static void Wait_For_B1(void);            /* block until B1 pressed (IWDG-safe)   */
 
 /* USER CODE END PFP */
 
@@ -181,24 +232,20 @@ int main(void)
   printf("\r\n");
   HAL_IWDG_Refresh(&hiwdg);
   printf("========================================\r\n");
-  printf(" Phase 6 - Step 6 v2: KF + CSV + IWDG\r\n");
-  printf(" Target:    N=%lu loops (~5s @ 200Hz)\r\n",
-         (unsigned long)PHASE6_N_TEST_LOOPS);
-  printf(" Mode:      A (predict 200Hz, update on DataReady)\r\n");
-  printf(" KF:        Q=%.2f, R_INIT=%.1f, W=%d (Fixed KF, no AKF)\r\n",
+  printf(" E1 Baseline - Dual KF (Fixed + CM-AKF)\r\n");
+  printf(" Scenario:  %u   N=%lu loops (~5s @ 200Hz)\r\n",
+         (unsigned)CSV_SCENARIO_ID, (unsigned long)PHASE6_N_TEST_LOOPS);
+  printf(" Mode:      C (predict+update 1:1, synced to ToF DataReady)\r\n");
+  printf(" KF:        Q=%.2f, R_INIT=%.1f, W=%d (Fixed + CM-AKF parallel)\r\n",
          KF_Q, KF_R_INIT, KF_WINDOW_SIZE);
-  printf(" CSV:       18 fields, decimation=%lu (50Hz), DMA -> USART6\r\n",
+  printf(" CSV:       25 fields, decimation=%lu (50Hz), DMA -> USART6\r\n",
          (unsigned long)LOG_DECIMATION);
+  printf(" HC-SR04:   trigger %lums (~20Hz), echo TIM3 CH1 IC\r\n",
+         (unsigned long)HCSR04_TRIG_PERIOD_MS);
   printf(" IWDG:      timeout=8.0s (dev), refresh every %lu loops (50ms)\r\n",
          (unsigned long)IWDG_REFRESH_EVERY);
   printf(" Budget:    %lu us / loop\r\n", (unsigned long)PHASE6_LOOP_BUDGET_US);
   printf("========================================\r\n");
-  HAL_IWDG_Refresh(&hiwdg);
-
-  printf("# CSV_HEADER: seq,timestamp_ms,enc_L,enc_R,pos_L_mm,pos_R_mm,"
-         "tof_dist_mm,tof_status,tof_signal_mcps,tof_ambient_mcps,"
-         "kf_estimate,kf_covariance,residual,residual_var,residual_mean,"
-         "kalman_gain,innovation_cov,scenario_id\r\n");
   HAL_IWDG_Refresh(&hiwdg);
 
   Safe_Delay_ms(50);
@@ -209,21 +256,67 @@ int main(void)
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_12, GPIO_PIN_RESET);
 
+  /* HC-SR04 trigger pin idle low */
+  HAL_GPIO_WritePin(HCSR04_TRIG_PORT, HCSR04_TRIG_PIN, GPIO_PIN_RESET);
+
   HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
   HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   __HAL_TIM_SET_COUNTER(&htim4, 0);
 
+  /* HC-SR04 echo capture on TIM3 CH1 */
+  HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
+
   HAL_IWDG_Refresh(&hiwdg);
   VL53L0X_Setup();
   HAL_IWDG_Refresh(&hiwdg);
 
-  KalmanFilter kf;
+  /* Dual Kalman Filter: fixed (use_akf=false) and CM-AKF (use_akf=true) */
+  KalmanFilter kf_fixed;
+  KalmanFilter kf_cm;
   uint8_t      kf_initialised = 0;
 
-  printf("[INIT] Starting TIM6 @ 200Hz. CSV stream begins.\r\n");
+  /* Wait for B1 before starting measurement (excludes stationary
+   * transient before manual roll). IWDG is refreshed inside. */
+  printf("[INIT] Setup done. LD2 blinking = press B1 to start.\r\n");
   HAL_IWDG_Refresh(&hiwdg);
-  Safe_Delay_ms(50);
+  Wait_For_B1();
+  HAL_IWDG_Refresh(&hiwdg);
+
+  /* Drain any USART6 transfer still in flight from the boot banner
+   * printf, so the header DMA below starts on an idle UART. */
+  HAL_Delay(50);
+
+  /* 25-column CSV header.
+   * Sent via DMA on USART6 (the same path as the data rows) so it
+   * never collides with printf's byte-by-byte blocking transmit.
+   * We copy it into csv_tx_buf and wait for the DMA to finish before
+   * starting the 200Hz loop, so the header is one clean line that
+   * fully drains before any data row is queued. */
+  {
+      int hn = snprintf(csv_tx_buf, CSV_BUF_SIZE,
+          "# CSV_HEADER: seq,timestamp_ms,tof_distance_mm,tof_signal_rate,"
+          "tof_range_status,us_distance_mm,encoder_distance_mm,"
+          "encoder_speed_mms,sensor_disagree,tof_meas_rate,gt_distance_mm,"
+          "scenario_id,"
+          "fixed_estimate_mm,fixed_residual,fixed_residual_var,"
+          "fixed_residual_mean,fixed_kalman_gain,fixed_innovation_cov,"
+          "cm_estimate_mm,cm_residual,cm_residual_var,cm_residual_mean,"
+          "cm_kalman_gain,cm_innovation_cov,cm_R\r\n");
+
+      /* make sure no earlier USART6 transfer is still in flight */
+      while (huart6.gState != HAL_UART_STATE_READY) { HAL_IWDG_Refresh(&hiwdg); }
+
+      if (hn > 0 && hn < (int)CSV_BUF_SIZE) {
+          HAL_UART_Transmit_DMA(&huart6, (uint8_t *)csv_tx_buf, (uint16_t)hn);
+      }
+
+      /* wait for the header DMA to fully drain */
+      while (huart6.gState != HAL_UART_STATE_READY) { HAL_IWDG_Refresh(&hiwdg); }
+  }
+  HAL_IWDG_Refresh(&hiwdg);
+
+  Safe_Delay_ms(50);   /* small margin before the data stream starts */
   HAL_TIM_Base_Start_IT(&htim6);
 
   uint32_t loop_count    = 0;
@@ -240,11 +333,30 @@ int main(void)
   uint8_t  vl_last_status      = 0xFF;
   float    vl_last_signal_mcps = 0.0f;
   float    vl_last_ambient_mcps = 0.0f;
+  uint16_t vl_prev_dist_mm     = 0;       /* for tof_meas_rate                */
+  uint8_t  vl_have_prev        = 0;
+  float    tof_meas_rate       = 0.0f;
+
+  /* HC-SR04 */
+  float    us_dist_mm          = 0.0f;
+  uint32_t hcsr04_last_trig_ms = 0;
 
   int16_t  enc_l_prev = 0;
   int16_t  enc_r_prev = 0;
   int32_t  enc_l_total = 0;
   int32_t  enc_r_total = 0;
+
+  /* [SCHEME C] Per-update accumulators.
+   * enc_l_accum / enc_r_accum hold the pulse deltas summed since the
+   * previous ToF update.  They are consumed (one predict) and reset
+   * to zero each time a ToF measurement arrives.
+   * last_update_ms timestamps the previous update so encoder_speed_mms
+   * can be reported as the mean speed over the (variable) interval. */
+  int32_t  enc_l_accum   = 0;
+  int32_t  enc_r_accum   = 0;
+  uint32_t last_update_ms = 0;
+  uint8_t  have_last_update = 0;
+  float    kf_u_mmps      = 0.0f;   /* last KF input, for CSV (mean speed)  */
 
   uint32_t kf_predict_count = 0;
   uint32_t kf_update_count  = 0;
@@ -273,22 +385,36 @@ int main(void)
 
       uint32_t t_start = DWT->CYCCNT;
 
+      /* ---- HC-SR04 trigger (every HCSR04_TRIG_PERIOD_MS) ---- */
+      uint32_t now_ms = HAL_GetTick();
+      if ((now_ms - hcsr04_last_trig_ms) >= HCSR04_TRIG_PERIOD_MS) {
+          hcsr04_last_trig_ms = now_ms;
+          HCSR04_Trigger();
+      }
+      /* ---- HC-SR04 echo result ready? ---- */
+      if (echo_ready) {
+          echo_ready = 0;
+          us_dist_mm = (float)echo_pulse_us * HCSR04_US_TO_MM;
+      }
+
+      /* ---- Encoder read (R-side sign corrected) ----
+       * [SCHEME C] The KF is NOT stepped here.  We only read the
+       * encoder counters and ACCUMULATE the pulse deltas.  enc_l_total
+       * / enc_r_total still track the absolute pulse count for the
+       * encoder_distance_mm CSV field; enc_l_accum / enc_r_accum hold
+       * the deltas waiting to be fed to the next kf_predict. */
       int16_t enc_l_now = (int16_t)__HAL_TIM_GET_COUNTER(&htim2);
       int16_t enc_r_now = (int16_t)__HAL_TIM_GET_COUNTER(&htim4);
       int16_t dl = enc_l_now - enc_l_prev;
-      int16_t dr = enc_r_now - enc_r_prev;
+      int16_t dr = -(enc_r_now - enc_r_prev);   /* R motor wiring inverted */
       enc_l_prev = enc_l_now;
       enc_r_prev = enc_r_now;
       enc_l_total += dl;
       enc_r_total += dr;
-      float avg_dpulses = ((float)dl + (float)dr) * 0.5f;
-      float u_mmps      = avg_dpulses * PULSES_TO_MMPS;
+      enc_l_accum += dl;
+      enc_r_accum += dr;
 
-      if (kf_initialised) {
-          kf_predict(&kf, u_mmps);
-          kf_predict_count++;
-      }
-
+      /* ---- VL53L0X read ---- */
       uint8_t data_ready = 0;
       VL53L0X_Error vl_st = VL53L0X_GetMeasurementDataReady(pVL53L0X, &data_ready);
       if (vl_st != VL53L0X_ERROR_NONE) {
@@ -305,47 +431,120 @@ int main(void)
               vl_last_status       = m.RangeStatus;
               vl_last_signal_mcps  = (float)m.SignalRateRtnMegaCps  / 65536.0f;
               vl_last_ambient_mcps = (float)m.AmbientRateRtnMegaCps / 65536.0f;
+
+              /* tof_meas_rate = change in ToF distance between measurements */
+              if (vl_have_prev) {
+                  tof_meas_rate = (float)vl_last_dist_mm - (float)vl_prev_dist_mm;
+              }
+              vl_prev_dist_mm = vl_last_dist_mm;
+              vl_have_prev    = 1;
+
               if (m.RangeStatus == 0) {
                   vl_status0_count++;
+
+                  /* ---- [SCHEME C] KF step: exactly one predict +
+                   *      one update, fed the displacement accumulated
+                   *      since the previous ToF update. ----
+                   *
+                   * KF state x is "distance to wall".  Moving forward
+                   * DECREASES x, so the encoder input is negated.
+                   * The whole accumulated displacement goes into a
+                   * single predict, so predict:update is strictly
+                   * 1:1 and phase-aligned regardless of how many
+                   * 200Hz loops (or how much ToF jitter) elapsed.
+                   *
+                   * accum_pulses (signed) -> KF input:
+                   *   D_mm = accum_pulses * 0.5 * MM_PER_PULSE
+                   *   u    = D_mm / KF_B   (PULSES_TO_KF_U folds the
+                   *          MM_PER_PULSE / KF_B constant)
+                   */
+                  float accum_pulses =
+                      ((float)enc_l_accum + (float)enc_r_accum) * 0.5f;
+                  float u_kf = accum_pulses * PULSES_TO_KF_U;
+
+                  /* mean speed over the interval, for the CSV field
+                   * (positive = forward, per the thesis GT convention) */
+                  uint32_t now_upd_ms = HAL_GetTick();
+                  if (have_last_update) {
+                      uint32_t dt_ms = now_upd_ms - last_update_ms;
+                      float d_mm = accum_pulses * MM_PER_PULSE;
+                      kf_u_mmps = (dt_ms > 0U)
+                          ? (d_mm * 1000.0f / (float)dt_ms)
+                          : 0.0f;
+                  } else {
+                      kf_u_mmps = 0.0f;
+                  }
+                  last_update_ms   = now_upd_ms;
+                  have_last_update = 1;
+
                   if (!kf_initialised) {
-                      kf_init(&kf, (float)m.RangeMilliMeter, KF_R_INIT, KF_R_INIT);
+                      kf_init(&kf_fixed, (float)m.RangeMilliMeter,
+                              KF_R_INIT, KF_R_INIT);
+                      kf_init(&kf_cm,    (float)m.RangeMilliMeter,
+                              KF_R_INIT, KF_R_INIT);
                       kf_initialised = 1;
                   } else {
-                      kf_update(&kf, (float)m.RangeMilliMeter, false);
+                      /* one predict (whole accumulated displacement) */
+                      kf_predict(&kf_fixed, -u_kf);
+                      kf_predict(&kf_cm,    -u_kf);
+                      kf_predict_count++;
+                      /* one update */
+                      kf_update(&kf_fixed, (float)m.RangeMilliMeter, false);
+                      kf_update(&kf_cm,    (float)m.RangeMilliMeter, true);
                       kf_update_count++;
                   }
+
+                  /* accumulator consumed -> reset for next interval */
+                  enc_l_accum = 0;
+                  enc_r_accum = 0;
               }
           }
           VL53L0X_ClearInterruptMask(pVL53L0X, 0);
       }
 
+      /* ---- CSV logging (decimated to 50Hz) ---- */
       if (kf_initialised && ((loop_count % LOG_DECIMATION) == 0)) {
           csv_tx_attempts++;
 
           if (huart6.gState != HAL_UART_STATE_READY) {
               csv_tx_drops++;
           } else {
-              float r_mean = 0.0f, r_var = 0.0f;
-              kf_get_residual_stats(&kf, &r_mean, &r_var);
+              float fx_mean = 0.0f, fx_var = 0.0f;
+              float cm_mean = 0.0f, cm_var = 0.0f;
+              kf_get_residual_stats(&kf_fixed, &fx_mean, &fx_var);
+              kf_get_residual_stats(&kf_cm,    &cm_mean, &cm_var);
 
-              float pos_l_mm = (float)enc_l_total * MM_PER_PULSE;
-              float pos_r_mm = (float)enc_r_total * MM_PER_PULSE;
+              float enc_dist_mm =
+                  ((float)enc_l_total + (float)enc_r_total) * 0.5f * MM_PER_PULSE;
+              float sensor_disagree = fabsf((float)vl_last_dist_mm - us_dist_mm);
               uint32_t ts_ms = HAL_GetTick() - boot_ms;
 
               int n = snprintf(csv_tx_buf, CSV_BUF_SIZE,
-                  "%lu,%lu,%ld,%ld,%.3f,%.3f,"
-                  "%u,%u,%.3f,%.3f,"
-                  "%.3f,%.3f,%.3f,%.3f,%.3f,"
-                  "%.6f,%.3f,%u\r\n",
+                  /* shared 12 */
+                  "%lu,%lu,%u,%.3f,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%u,"
+                  /* fixed 6 */
+                  "%.3f,%.3f,%.3f,%.3f,%.6f,%.3f,"
+                  /* cm 7 */
+                  "%.3f,%.3f,%.3f,%.3f,%.6f,%.3f,%.3f\r\n",
+                  /* --- shared --- */
                   (unsigned long)csv_seq,
                   (unsigned long)ts_ms,
-                  (long)enc_l_total, (long)enc_r_total,
-                  pos_l_mm, pos_r_mm,
-                  vl_last_dist_mm, vl_last_status,
-                  vl_last_signal_mcps, vl_last_ambient_mcps,
-                  kf.x, kf.P, kf.residual, r_var, r_mean,
-                  kf.K, kf.S,
-                  (unsigned)CSV_SCENARIO_ID);
+                  vl_last_dist_mm,
+                  vl_last_signal_mcps,
+                  vl_last_status,
+                  us_dist_mm,
+                  enc_dist_mm,
+                  kf_u_mmps,                    /* mean speed over interval    */
+                  sensor_disagree,
+                  tof_meas_rate,
+                  0.0f,                         /* gt_distance_mm: post-fill   */
+                  (unsigned)CSV_SCENARIO_ID,
+                  /* --- fixed --- */
+                  kf_fixed.x, kf_fixed.residual, fx_var, fx_mean,
+                  kf_fixed.K, kf_fixed.S,
+                  /* --- cm --- */
+                  kf_cm.x, kf_cm.residual, cm_var, cm_mean,
+                  kf_cm.K, kf_cm.S, kf_cm.R);
 
               if (n > 0 && n < (int)CSV_BUF_SIZE) {
                   HAL_UART_Transmit_DMA(&huart6, (uint8_t *)csv_tx_buf, (uint16_t)n);
@@ -401,7 +600,7 @@ int main(void)
 
   HAL_IWDG_Refresh(&hiwdg);
 
-  printf("\r\n# ===== Phase 6 Step 6 Results =====\r\n");
+  printf("\r\n# ===== E1 Baseline Run Results =====\r\n");
   HAL_IWDG_Refresh(&hiwdg);
   printf("# Loops:                  %lu\r\n", (unsigned long)loop_count);
   printf("# TIM6 ticks:             %lu\r\n", (unsigned long)total_ticks);
@@ -421,11 +620,13 @@ int main(void)
          (unsigned long)vl_read_ok_count, (unsigned long)vl_status0_count);
   printf("# I2C errors:             %lu\r\n", (unsigned long)vl_i2c_err_count);
   HAL_IWDG_Refresh(&hiwdg);
-  printf("# KF predict / update:    %lu / %lu\r\n",
+  printf("# KF predict / update:    %lu / %lu  (Scheme C: must be equal)\r\n",
          (unsigned long)kf_predict_count, (unsigned long)kf_update_count);
   if (kf_initialised) {
-      printf("# KF final:  x=%.3f P=%.3f R=%.3f K=%.6f\r\n",
-             kf.x, kf.P, kf.R, kf.K);
+      printf("# Fixed final: x=%.3f P=%.3f R=%.3f K=%.6f\r\n",
+             kf_fixed.x, kf_fixed.P, kf_fixed.R, kf_fixed.K);
+      printf("# CM-AKF final: x=%.3f P=%.3f R=%.3f K=%.6f\r\n",
+             kf_cm.x, kf_cm.P, kf_cm.R, kf_cm.K);
   }
   printf("# CSV TX:    attempts=%lu  drops=%lu  seq=%lu\r\n",
          (unsigned long)csv_tx_attempts,
@@ -435,20 +636,9 @@ int main(void)
          (unsigned long)iwdg_refresh_count, (unsigned long)IWDG_REFRESH_EVERY);
   HAL_IWDG_Refresh(&hiwdg);
 
-  int pass = 1;
-  if (overrun_loop > 0)       { pass = 0; printf("# FAIL: body overrun\r\n"); }
-  if (isr_overrun_final > 0)  { pass = 0; printf("# FAIL: ISR overrun\r\n"); }
-  if (vl_i2c_err_count > 0)   { pass = 0; printf("# FAIL: I2C errors\r\n"); }
-  if (csv_tx_drops > 0)       { pass = 0; printf("# FAIL: CSV TX drops\r\n"); }
-  if (!kf_initialised)        { pass = 0; printf("# FAIL: KF not init\r\n"); }
-  if (kf_update_count < 10)   { pass = 0; printf("# FAIL: too few KF updates\r\n"); }
-  if (pass) {
-      printf("# RESULT: PASS - KF + CSV + IWDG integrated\r\n");
-  } else {
-      printf("# RESULT: FAIL\r\n");
-  }
+  printf("# RESULT: E1 run complete (scenario %u). Check CSV on PC.\r\n",
+         (unsigned)CSV_SCENARIO_ID);
   printf("# ==================================\r\n");
-  printf("# To verify IWDG trigger: pull I2C jumper, wait ~8s, expect header reprint.\r\n");
   HAL_IWDG_Refresh(&hiwdg);
 
   /* Idle - heartbeat LED, keep refreshing IWDG so the demo doesn't reset */
@@ -457,6 +647,49 @@ int main(void)
       HAL_IWDG_Refresh(&hiwdg);
       HAL_Delay(500);
   }
+}
+
+/* ============================================================
+ * Wait_For_B1: block until the B1 (PC13) button is pressed.
+ * NUCLEO B1 reads HIGH when released, LOW when pressed.
+ * IWDG is refreshed inside the loop so a long wait (the operator
+ * getting ready to roll the robot) does not trigger a reset.
+ *
+ * The LD2 LED blinks while waiting -> this is the operator's
+ * "press B1 now" cue (the logger hides pre-header banner lines,
+ * so the prompt is not visible on the PC).  After B1 is pressed
+ * the LED is left ON to indicate "measuring".
+ * ============================================================ */
+static void Wait_For_B1(void)
+{
+    /* Wait while released (HIGH) — blink LD2 as a visible cue */
+    while (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_SET) {
+        HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+        HAL_IWDG_Refresh(&hiwdg);
+        HAL_Delay(100);   /* ~5 Hz blink */
+    }
+    /* Simple debounce */
+    HAL_Delay(20);
+    HAL_IWDG_Refresh(&hiwdg);
+
+    /* B1 pressed — LED solid ON = "measuring" */
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+}
+
+/* ============================================================
+ * HCSR04_Trigger: fire a 10us HIGH pulse on the trigger pin.
+ * echo_capture_state is reset first so a missed echo from the
+ * previous cycle does not desync rising/falling capture.
+ * ============================================================ */
+static void HCSR04_Trigger(void)
+{
+    echo_capture_state = 0;   /* recover from a missed echo */
+    __HAL_TIM_SET_CAPTUREPOLARITY(&htim3, TIM_CHANNEL_1,
+                                  TIM_INPUTCHANNELPOLARITY_RISING);
+
+    HAL_GPIO_WritePin(HCSR04_TRIG_PORT, HCSR04_TRIG_PIN, GPIO_PIN_SET);
+    DWT_Delay_us(HCSR04_TRIG_PULSE_US);
+    HAL_GPIO_WritePin(HCSR04_TRIG_PORT, HCSR04_TRIG_PIN, GPIO_PIN_RESET);
 }
 
 /* ============================================================

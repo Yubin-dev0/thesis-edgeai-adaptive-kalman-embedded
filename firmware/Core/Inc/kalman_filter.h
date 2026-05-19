@@ -32,14 +32,17 @@
  * Model Parameters
  * ================================================================
  * Kept as macros for easy tuning.  Values match the Python
- * simulation (kf_simulation_1D.py, cm_akf_1D.py).
+ * simulation (kf_simulation_1D.py, rule_akf_1D.py).
  * ================================================================ */
 
 #define KF_A        1.0f        /**< State transition (position preserving)   */
 #define KF_B        0.005f      /**< Input gain = dt (5 ms at 200 Hz)         */
 #define KF_H        1.0f        /**< Observation model (direct measurement)   */
 #define KF_Q        1.0f        /**< Process noise variance                   */
-#define KF_R_INIT   400.0f      /**< Initial measurement noise (20mm^2)       */
+#define KF_R_INIT   24.0f       /**< Initial measurement noise R0.            */
+                                /*   500mm static calibration (2026-05-19):   */
+                                /*   232 samples, sigma ~= 4.87mm -> R0 ~= 24  */
+                                /*   (E0 sim used the datasheet value 400.)    */
 
 /* ================================================================
  * CM-AKF Parameters
