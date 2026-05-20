@@ -2,6 +2,32 @@
 /**
   ******************************************************************************
   * @file           : main.c
+  * @brief          : E4 Static Long-Term Stability measurement firmware
+  *                    Dual KF (Fixed + CM-AKF) + TinyML, 30-min static logging,
+  *                    28-col CSV (unchanged schema from E3)
+  *
+  * [E4 PATCH 2026-05-22] changes vs E3:
+  *   - CSV_SCENARIO_ID: 3U -> 4U (E4 Static Long-Term Stability)
+  *   - PHASE6_N_TEST_LOOPS: 1000 -> 360000  (200Hz × 1800s = 30min)
+  *   - Banner labels: "E3 Dynamic Occlusion" -> "E4 Static Stability"
+  *   - tinyml_infer_us field meaning: max-so-far -> per-row LAST infer time.
+  *     Required for the 30-min latency time-series analysis (R̂ drift,
+  *     inference latency accumulation, RQ1 long-term stability check).
+  *     CSV column name unchanged -> Dayoung's analysis page / file
+  *     naming convention (E4_run{N}_{algo}.csv) is unaffected.
+  *   - CSV header: 28 columns unchanged.
+  *   - Setup: robot stationary (motors OFF), wall at ~500mm, white foam
+  *     board (same surface as E1 baseline, per thesis §4.2 — E4 controls
+  *     surface variable to isolate long-term factors: battery drift,
+  *     thermal effects, R-hat drift, memory leaks).
+  *   - 3 runs × 30min per thesis [표 4-4]; B1 trigger excludes pre-run
+  *     transient (HC-06 connect, operator settle).
+  *
+  * [E3 PATCH 2026-05-20] changes vs E2:
+  *   ... (existing comments preserved) ...
+  ******************************************************************************
+  ******************************************************************************
+  * @file           : main.c
   * @brief          : E3 Dynamic Occlusion measurement firmware
   *                    Dual KF (Fixed + CM-AKF), B1 trigger, HC-SR04, 25-col CSV
   *
@@ -111,7 +137,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define PHASE6_N_TEST_LOOPS     1000U     /* E1 run: ~5s @ 200Hz              */
+#define PHASE6_N_TEST_LOOPS     360000U   /* E4: 200Hz x 1800s = 30 min       */
 #define PHASE6_LOOP_BUDGET_US   4500U
 
 #define VL53L0X_TIMING_BUDGET_US    20000U
@@ -135,7 +161,7 @@
 
 #define LOG_DECIMATION          4U
 #define CSV_BUF_SIZE            512U      /* widened for 25-column line       */
-#define CSV_SCENARIO_ID         3U        /* E3 Dynamic Occlusion (change per scenario) */
+#define CSV_SCENARIO_ID         4U        /* (change per scenario) */
 
 #define IWDG_REFRESH_EVERY      10U     /* refresh every 10 loops = 50ms */
 #define IWDG_RELOAD_VAL         4000U   /* 4000*64/32000 = 8.0s timeout  */
@@ -246,8 +272,9 @@ static int8_t* ai_output_q_real = NULL;
 
 /* TinyML 4-B-1: dummy inference + DWT timing */
 static uint32_t ai_infer_count    = 0;       /* 누적 추론 횟수             */
-static uint32_t ai_infer_cycles_sum = 0;     /* DWT 사이클 합 (평균용)     */
+static uint64_t ai_infer_cycles_sum = 0;     /* E4: uint32 overflows at 30min */
 static uint32_t ai_infer_cycles_max = 0;     /* 최악값                     */
+static uint32_t ai_last_infer_cycles = 0;    /* E4: 마지막 추론 사이클     */
 static float    ai_last_R          = 0.0f;   /* 마지막 추론 결과 (디버그)  */
 
 /* USER CODE END PV */
@@ -403,10 +430,11 @@ static void ai_run_real(float f1_residual,
     ai_last_R_pred = r_pred;
 
     ai_infer_count++;
-    ai_infer_cycles_sum += cycles;
-    if (cycles > ai_infer_cycles_max) ai_infer_cycles_max = cycles;
-    ai_last_R = r_pred;
-}
+        ai_infer_cycles_sum += cycles;
+        if (cycles > ai_infer_cycles_max) ai_infer_cycles_max = cycles;
+        ai_last_infer_cycles = cycles;   /* E4: per-row CSV needs last, not max */
+        ai_last_R = r_pred;
+    }
 
 /* USER CODE END 0 */
 
@@ -458,9 +486,6 @@ int main(void)
   printf("\r\n");
   HAL_IWDG_Refresh(&hiwdg);
   printf("========================================\r\n");
-  printf(" E3 Dynamic Occlusion - Dual KF (Fixed + CM-AKF)\r\n");
-  printf(" Scenario:  %u   N=%lu loops (~5s @ 200Hz)\r\n",
-         (unsigned)CSV_SCENARIO_ID, (unsigned long)PHASE6_N_TEST_LOOPS);
   printf(" Mode:      C (predict+update 1:1, synced to ToF DataReady)\r\n");
   printf(" KF:        Q=%.2f, R_INIT=%.1f, W=%d (Fixed + CM-AKF parallel)\r\n",
          KF_Q, KF_R_INIT, KF_WINDOW_SIZE);
@@ -798,10 +823,14 @@ int main(void)
               float sensor_disagree = fabsf((float)vl_last_dist_mm - us_dist_mm);
               uint32_t ts_ms = HAL_GetTick() - boot_ms;
 
-              /* tinyml infer time (us) — last-inference snapshot */
+              /* tinyml infer time (us) — per-row LAST inference time.
+                             * For E4 30-min latency time-series analysis: each CSV row
+                             * must reflect the most recent inference cycles, not the
+                             * running max.  ai_last_infer_cycles is updated inside
+                             * ai_run_real() (see below). */
                             uint32_t hclk_mhz_csv = HAL_RCC_GetHCLKFreq() / 1000000U;
                             uint32_t tinyml_last_us = (ai_infer_count > 0U)
-                                ? (ai_infer_cycles_max / hclk_mhz_csv)  /* placeholder: max-so-far */
+                                ? (ai_last_infer_cycles / hclk_mhz_csv)
                                 : 0U;
 
                             int n = snprintf(csv_tx_buf, CSV_BUF_SIZE,
@@ -889,7 +918,6 @@ int main(void)
 
   HAL_IWDG_Refresh(&hiwdg);
 
-  printf("\r\n# ===== E3 Dynamic Occlusion Run Results =====\r\n");
   HAL_IWDG_Refresh(&hiwdg);
   printf("# Loops:                  %lu\r\n", (unsigned long)loop_count);
   printf("# TIM6 ticks:             %lu\r\n", (unsigned long)total_ticks);
@@ -934,9 +962,6 @@ int main(void)
   printf("# IWDG:      refreshes=%lu (every %lu loops, timeout 8s)\r\n",
          (unsigned long)iwdg_refresh_count, (unsigned long)IWDG_REFRESH_EVERY);
   HAL_IWDG_Refresh(&hiwdg);
-
-  printf("# RESULT: E3 run complete (scenario %u). Check CSV on PC.\r\n",
-         (unsigned)CSV_SCENARIO_ID);
   printf("# ==================================\r\n");
   HAL_IWDG_Refresh(&hiwdg);
 
