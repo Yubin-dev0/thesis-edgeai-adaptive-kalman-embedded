@@ -189,12 +189,60 @@ volatile uint32_t isr_overrun_count = 0;
 
 static char  csv_tx_buf[CSV_BUF_SIZE];
 
-/* TinyML AI inference - Stage 4-A: init only, no inference yet */
-static stai_network ai_net;
+/* TinyML 4-C: third KF instance + INT8 I/O buffers */
+static KalmanFilter kf_tinyml;
+static int8_t  ai_input_q[6];    /* INT8 quantized input  */
+static int8_t  ai_output_q[1];   /* INT8 quantized output */
+static float   ai_last_R_pred = 24.0f;  /* dequantized R (init = Fixed R) */
+
+/* TinyML 4-C-2: standard normalization (mean, std) — from normalization_params.json
+ * Method: standard (x_norm = (x - mean) / std)
+ * Fit on: E1 Run 1-3 (f5fixed), per thesis [표 3-3]
+ * NOTE: F5 (tof_meas_rate) std=0 in training -> mapped to 1.0 (always yields 0). */
+static const float AI_FEAT_MEAN[6] = {
+    0.1142364889f,   /* F1 cm_residual       */
+    21.1486797333f,  /* F2 cm_residual_var   */
+    0.0326167047f,   /* F3 cm_residual_mean  */
+    23.4317665100f,  /* F4 sensor_disagree   */
+    1.0f,            /* F5 tof_meas_rate     */
+    8.6278190613f    /* F6 tof_signal_rate   */
+};
+static const float AI_FEAT_STD[6] = {
+    4.5925402641f,   /* F1 */
+    11.7192335129f,  /* F2 */
+    0.7663779259f,   /* F3 */
+    6.4479146004f,   /* F4 */
+    1.0f,            /* F5 (std_safe — original std=0) */
+    6.7547807693f    /* F6 */
+};
+
+/* TinyML 4-C-2: R clamping (논문 3.4절 CM-AKF와 동일 범위) */
+#define AI_R_MIN  1.0f
+#define AI_R_MAX  10000.0f
+
+/* Quantization params (from stedgeai report) */
+#define AI_IN_SCALE   0.913747072f
+#define AI_IN_ZP      31
+#define AI_OUT_SCALE  0.038760886f
+#define AI_OUT_ZP     (-128)
+
+/* TinyML AI inference - Stage 4-A: init only, no inference yet
+ * 4-C-3 fix: stai_network is `typedef uint8_t stai_network` (opaque byte
+ *   type). The real context size is STAI_NETWORK_CONTEXT_SIZE from
+ *   network.h. We allocate a byte array of that size and use a pointer
+ *   to it as the network handle. Aligned per CONTEXT_ALIGNMENT. */
+static uint8_t ai_net_ctx[STAI_NETWORK_CONTEXT_SIZE]
+    __attribute__((aligned(STAI_NETWORK_CONTEXT_ALIGNMENT)));
+static stai_network* ai_net = (stai_network*)ai_net_ctx;
 static uint8_t ai_activations[196] __attribute__((aligned(8)));
 static float    ai_input[6];
 static float    ai_output[1];
 static uint8_t  ai_initialized = 0;
+
+/* 4-C-3: I/O buffer pointers obtained from get_inputs/get_outputs after init.
+ * These point INTO ai_activations[] (PREALLOCATED flag in network.h). */
+static int8_t* ai_input_q_real  = NULL;
+static int8_t* ai_output_q_real = NULL;
 
 /* TinyML 4-B-1: dummy inference + DWT timing */
 static uint32_t ai_infer_count    = 0;       /* 누적 추론 횟수             */
@@ -235,25 +283,60 @@ static void Wait_For_B1(void);            /* block until B1 pressed (IWDG-safe) 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-/* TinyML AI initialization - Stage 4-A */
+/* TinyML AI initialization - Stage 4-A
+ * 4-C-3 diagnostic: printf at each step to see WHERE init fails.
+ * Output appears in the boot banner (before "Setup done. LD2 blinking..."). */
 static void ai_init(void)
 {
     stai_return_code rc;
     stai_ptr act_ptrs[1] = { (stai_ptr)ai_activations };
-    stai_ptr in_ptrs[1]  = { (stai_ptr)ai_input };
-    stai_ptr out_ptrs[1] = { (stai_ptr)ai_output };
 
-    rc = stai_network_init(&ai_net);
-    if (rc != STAI_SUCCESS) return;
 
-    rc = stai_network_set_activations(&ai_net, act_ptrs, 1);
-    if (rc != STAI_SUCCESS) return;
+    printf("[AI_INIT] step1: stai_network_init...\r\n");
+        rc = stai_network_init(ai_net);
+        if (rc != STAI_SUCCESS) {
+            printf("[AI_INIT] FAIL @ step1 (network_init), rc=%d\r\n", (int)rc);
+            return;
+        }
+        printf("[AI_INIT] step1 OK\r\n");
 
-    rc = stai_network_set_inputs(&ai_net, in_ptrs, 1);     /* ptrs 먼저, n 나중 */
-    if (rc != STAI_SUCCESS) return;
+        printf("[AI_INIT] step2: set_activations...\r\n");
+        rc = stai_network_set_activations(ai_net, act_ptrs, 1);
+        if (rc != STAI_SUCCESS) {
+            printf("[AI_INIT] FAIL @ step2 (set_activations), rc=%d\r\n", (int)rc);
+            return;
+        }
+        printf("[AI_INIT] step2 OK\r\n");
 
-    rc = stai_network_set_outputs(&ai_net, out_ptrs, 1);   /* ptrs 먼저, n 나중 */
-    if (rc != STAI_SUCCESS) return;
+        /* 4-C-3: STAI_FLAG_PREALLOCATED means I/O buffers are inside the
+         *        activations area. We must NOT call set_inputs/set_outputs.
+         *        Instead, get_inputs/get_outputs returns real addresses
+         *        after init; we read those once and cache for inference. */
+        printf("[AI_INIT] step3: get_inputs...\r\n");
+        {
+            stai_ptr in_real[1];
+            stai_size n_in = 1;
+            rc = stai_network_get_inputs(ai_net, in_real, &n_in);
+            if (rc != STAI_SUCCESS) {
+                printf("[AI_INIT] FAIL @ step3 (get_inputs), rc=%d\r\n", (int)rc);
+                return;
+            }
+            ai_input_q_real = (int8_t*)in_real[0];
+        }
+        printf("[AI_INIT] step3 OK (in_buf=%p)\r\n", (void*)ai_input_q_real);
+
+        printf("[AI_INIT] step4: get_outputs...\r\n");
+        {
+            stai_ptr out_real[1];
+            stai_size n_out = 1;
+            rc = stai_network_get_outputs(ai_net, out_real, &n_out);
+            if (rc != STAI_SUCCESS) {
+                printf("[AI_INIT] FAIL @ step4 (get_outputs), rc=%d\r\n", (int)rc);
+                return;
+            }
+            ai_output_q_real = (int8_t*)out_real[0];
+        }
+        printf("[AI_INIT] step4 OK (out_buf=%p) -- AI ready\r\n", (void*)ai_output_q_real);
 
     ai_initialized = 1;
 }
@@ -281,23 +364,48 @@ static void ai_run_real(float f1_residual,
 {
     if (!ai_initialized) return;
 
-    ai_input[0] = f1_residual;
-    ai_input[1] = f2_residual_var;
-    ai_input[2] = f3_residual_mean;
-    ai_input[3] = f4_sensor_disagree;
-    ai_input[4] = f5_meas_rate;
-    ai_input[5] = f6_signal_rate;
+    float feats_raw[6] = {
+        f1_residual, f2_residual_var, f3_residual_mean,
+        f4_sensor_disagree, f5_meas_rate, f6_signal_rate
+    };
 
-    uint32_t t0 = DWT->CYCCNT;
-    stai_return_code rc = stai_network_run(&ai_net, STAI_MODE_SYNC);
-    uint32_t cycles = DWT->CYCCNT - t0;
+    /* (1) Standard normalization: (x - mean) / std  [thesis 표 3-3] */
+    float feats_norm[6];
+    for (int i = 0; i < 6; i++) {
+        feats_norm[i] = (feats_raw[i] - AI_FEAT_MEAN[i]) / AI_FEAT_STD[i];
+    }
 
-    if (rc != STAI_SUCCESS) return;
+    /* (2) Quantize float -> int8, write directly to PREALLOCATED input buf */
+        for (int i = 0; i < 6; i++) {
+            int32_t q = (int32_t)lroundf(feats_norm[i] / AI_IN_SCALE) + AI_IN_ZP;
+            if (q < -128) q = -128;
+            if (q >  127) q =  127;
+            ai_input_q_real[i] = (int8_t)q;
+        }
+
+        /* (3) Inference + cycle measurement */
+        uint32_t t0 = DWT->CYCCNT;
+        stai_return_code rc = stai_network_run(ai_net, STAI_MODE_SYNC);
+        uint32_t cycles = DWT->CYCCNT - t0;
+
+        if (rc != STAI_SUCCESS) return;
+
+        /* (4) Dequantize int8 -> float (log1p space), read from PREALLOCATED out buf */
+        float r_log = ((int32_t)ai_output_q_real[0] - AI_OUT_ZP) * AI_OUT_SCALE;
+
+    /* (5) expm1: log1p space -> R  [thesis 3.5.3]
+     *     R = expm1(y) = e^y - 1
+     *     Then clamp to [1, 10000] (same range as CM-AKF, thesis 3.4) */
+    float r_pred = expm1f(r_log);
+    if (r_pred < AI_R_MIN) r_pred = AI_R_MIN;
+    if (r_pred > AI_R_MAX) r_pred = AI_R_MAX;
+
+    ai_last_R_pred = r_pred;
 
     ai_infer_count++;
     ai_infer_cycles_sum += cycles;
     if (cycles > ai_infer_cycles_max) ai_infer_cycles_max = cycles;
-    ai_last_R = ai_output[0];
+    ai_last_R = r_pred;
 }
 
 /* USER CODE END 0 */
@@ -414,15 +522,16 @@ int main(void)
    * starting the 200Hz loop, so the header is one clean line that
    * fully drains before any data row is queued. */
   {
-      int hn = snprintf(csv_tx_buf, CSV_BUF_SIZE,
-          "# CSV_HEADER: seq,timestamp_ms,tof_distance_mm,tof_signal_rate,"
-          "tof_range_status,us_distance_mm,encoder_distance_mm,"
-          "encoder_speed_mms,sensor_disagree,tof_meas_rate,gt_distance_mm,"
-          "scenario_id,"
-          "fixed_estimate_mm,fixed_residual,fixed_residual_var,"
-          "fixed_residual_mean,fixed_kalman_gain,fixed_innovation_cov,"
-          "cm_estimate_mm,cm_residual,cm_residual_var,cm_residual_mean,"
-          "cm_kalman_gain,cm_innovation_cov,cm_R\r\n");
+	  int hn = snprintf(csv_tx_buf, CSV_BUF_SIZE,
+	            "# CSV_HEADER: seq,timestamp_ms,tof_distance_mm,tof_signal_rate,"
+	            "tof_range_status,us_distance_mm,encoder_distance_mm,"
+	            "encoder_speed_mms,sensor_disagree,tof_meas_rate,gt_distance_mm,"
+	            "scenario_id,"
+	            "fixed_estimate_mm,fixed_residual,fixed_residual_var,"
+	            "fixed_residual_mean,fixed_kalman_gain,fixed_innovation_cov,"
+	            "cm_estimate_mm,cm_residual,cm_residual_var,cm_residual_mean,"
+	            "cm_kalman_gain,cm_innovation_cov,cm_R,"
+	            "tinyml_estimate_mm,tinyml_R,tinyml_infer_us\r\n");
 
       /* make sure no earlier USART6 transfer is still in flight */
       while (huart6.gState != HAL_UART_STATE_READY) { HAL_IWDG_Refresh(&hiwdg); }
@@ -623,37 +732,46 @@ int main(void)
                   have_last_update = 1;
 
                   if (!kf_initialised) {
-                      kf_init(&kf_fixed, (float)m.RangeMilliMeter,
-                              KF_R_INIT, KF_R_INIT);
-                      kf_init(&kf_cm,    (float)m.RangeMilliMeter,
-                              KF_R_INIT, KF_R_INIT);
-                      kf_initialised = 1;
+                                        kf_init(&kf_fixed,  (float)m.RangeMilliMeter,
+                                                KF_R_INIT, KF_R_INIT);
+                                        kf_init(&kf_cm,     (float)m.RangeMilliMeter,
+                                                KF_R_INIT, KF_R_INIT);
+                                        kf_init(&kf_tinyml, (float)m.RangeMilliMeter,
+                                                KF_R_INIT, KF_R_INIT);
+                                        kf_initialised = 1;
                   } else {
-#if 0  /* TinyML 4-B-2 — DISABLED for E2/E3 measurement.
-        * Re-enable in stage 4-C together with kf_tinyml instance,
-        * 28-column CSV, and ai_init() failure fix.  Until then
-        * this firmware is a Fixed/CM-only logger (matches E1
-        * run01~05 collected with 0 drops). */
-                	float ai_f2_var = 0.0f, ai_f3_mean = 0.0f;
-                	kf_get_residual_stats(&kf_cm, &ai_f3_mean, &ai_f2_var);
-                	float ai_f4_disagree = fabsf((float)vl_last_dist_mm - us_dist_mm);
+                                        /* TinyML 4-C-2: run inference BEFORE KF predict/update,
+                                         * so F1..F3 (residual stats) come from the previous
+                                         * update — matches thesis Table 3-1 "KF Update 직전".
+                                         * Note: kf_get_residual_stats signature is
+                                         *       (kf, *mean, *var) — mean first, var second. */
+                                        float ai_f2_var = 0.0f, ai_f3_mean = 0.0f;
+                                        kf_get_residual_stats(&kf_cm, &ai_f3_mean, &ai_f2_var);
+                                        float ai_f4_disagree = fabsf((float)vl_last_dist_mm - us_dist_mm);
 
-                	ai_run_real(kf_cm.residual,    /* F1 */
-                	            ai_f2_var,         /* F2 */
-                	            ai_f3_mean,        /* F3 */
-                	            ai_f4_disagree,    /* F4 */
-                	            tof_meas_rate,     /* F5 */
-                	            vl_last_signal_mcps); /* F6 */
-#endif
-                      /* one predict (whole accumulated displacement) */
-                      kf_predict(&kf_fixed, -u_kf);
-                      kf_predict(&kf_cm,    -u_kf);
-                      kf_predict_count++;
-                      /* one update */
-                      kf_update(&kf_fixed, (float)m.RangeMilliMeter, false);
-                      kf_update(&kf_cm,    (float)m.RangeMilliMeter, true);
-                      kf_update_count++;
-                  }
+                                        ai_run_real(kf_cm.residual,       /* F1 */
+                                                    ai_f2_var,            /* F2 */
+                                                    ai_f3_mean,           /* F3 */
+                                                    ai_f4_disagree,       /* F4 */
+                                                    tof_meas_rate,        /* F5 */
+                                                    vl_last_signal_mcps); /* F6 */
+
+                                        /* Inject TinyML-predicted R into kf_tinyml.
+                                         * kf_update with use_akf=false uses kf->R as-is,
+                                         * so we set it here before calling update. */
+                                        kf_tinyml.R = ai_last_R_pred;
+
+                                        /* one predict (whole accumulated displacement) */
+                                        kf_predict(&kf_fixed,  -u_kf);
+                                        kf_predict(&kf_cm,     -u_kf);
+                                        kf_predict(&kf_tinyml, -u_kf);
+                                        kf_predict_count++;
+                                        /* one update */
+                                        kf_update(&kf_fixed,  (float)m.RangeMilliMeter, false);
+                                        kf_update(&kf_cm,     (float)m.RangeMilliMeter, true);
+                                        kf_update(&kf_tinyml, (float)m.RangeMilliMeter, false);
+                                        kf_update_count++;
+                                    }
 
                   /* accumulator consumed -> reset for next interval */
                   enc_l_accum = 0;
@@ -680,32 +798,42 @@ int main(void)
               float sensor_disagree = fabsf((float)vl_last_dist_mm - us_dist_mm);
               uint32_t ts_ms = HAL_GetTick() - boot_ms;
 
-              int n = snprintf(csv_tx_buf, CSV_BUF_SIZE,
-                  /* shared 12 */
-                  "%lu,%lu,%u,%.3f,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%u,"
-                  /* fixed 6 */
-                  "%.3f,%.3f,%.3f,%.3f,%.6f,%.3f,"
-                  /* cm 7 */
-                  "%.3f,%.3f,%.3f,%.3f,%.6f,%.3f,%.3f\r\n",
-                  /* --- shared --- */
-                  (unsigned long)csv_seq,
-                  (unsigned long)ts_ms,
-                  vl_last_dist_mm,
-                  vl_last_signal_mcps,
-                  vl_last_status,
-                  us_dist_mm,
-                  enc_dist_mm,
-                  kf_u_mmps,                    /* mean speed over interval    */
-                  sensor_disagree,
-                  tof_meas_rate,
-                  0.0f,                         /* gt_distance_mm: post-fill   */
-                  (unsigned)CSV_SCENARIO_ID,
-                  /* --- fixed --- */
-                  kf_fixed.x, kf_fixed.residual, fx_var, fx_mean,
-                  kf_fixed.K, kf_fixed.S,
-                  /* --- cm --- */
-                  kf_cm.x, kf_cm.residual, cm_var, cm_mean,
-                  kf_cm.K, kf_cm.S, kf_cm.R);
+              /* tinyml infer time (us) — last-inference snapshot */
+                            uint32_t hclk_mhz_csv = HAL_RCC_GetHCLKFreq() / 1000000U;
+                            uint32_t tinyml_last_us = (ai_infer_count > 0U)
+                                ? (ai_infer_cycles_max / hclk_mhz_csv)  /* placeholder: max-so-far */
+                                : 0U;
+
+                            int n = snprintf(csv_tx_buf, CSV_BUF_SIZE,
+                                /* shared 12 */
+                                "%lu,%lu,%u,%.3f,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%u,"
+                                /* fixed 6 */
+                                "%.3f,%.3f,%.3f,%.3f,%.6f,%.3f,"
+                                /* cm 7 */
+                                "%.3f,%.3f,%.3f,%.3f,%.6f,%.3f,%.3f,"
+                                /* tinyml 3 */
+                                "%.3f,%.3f,%lu\r\n",
+                                /* --- shared --- */
+                                (unsigned long)csv_seq,
+                                (unsigned long)ts_ms,
+                                vl_last_dist_mm,
+                                vl_last_signal_mcps,
+                                vl_last_status,
+                                us_dist_mm,
+                                enc_dist_mm,
+                                kf_u_mmps,                    /* mean speed over interval    */
+                                sensor_disagree,
+                                tof_meas_rate,
+                                0.0f,                         /* gt_distance_mm: post-fill   */
+                                (unsigned)CSV_SCENARIO_ID,
+                                /* --- fixed --- */
+                                kf_fixed.x, kf_fixed.residual, fx_var, fx_mean,
+                                kf_fixed.K, kf_fixed.S,
+                                /* --- cm --- */
+                                kf_cm.x, kf_cm.residual, cm_var, cm_mean,
+                                kf_cm.K, kf_cm.S, kf_cm.R,
+                                /* --- tinyml --- */
+                                kf_tinyml.x, kf_tinyml.R, (unsigned long)tinyml_last_us);
 
               if (n > 0 && n < (int)CSV_BUF_SIZE) {
                   HAL_UART_Transmit_DMA(&huart6, (uint8_t *)csv_tx_buf, (uint16_t)n);

@@ -1,0 +1,63 @@
+{
+  "6feat": {
+    "method": "standard",
+    "fit_on": "E1 Run 1-3 (f5fixed) \u2014 paper [\ud45c 3-3]",
+    "features": [
+      "cm_residual",
+      "cm_residual_var",
+      "cm_residual_mean",
+      "sensor_disagree",
+      "tof_meas_rate",
+      "tof_signal_rate"
+    ],
+    "mean": [
+      0.1142364889383316,
+      21.148679733276367,
+      0.03261670470237732,
+      23.431766510009766,
+      1.0,
+      8.627819061279297
+    ],
+    "std": [
+      4.592540264129639,
+      11.719233512878418,
+      0.7663779258728027,
+      6.4479146003723145,
+      1.0,
+      6.7547807693481445
+    ],
+    "std_is_safe": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "3feat": {
+    "method": "standard",
+    "fit_on": "E1 Run 1-3 (f5fixed) \u2014 paper [\ud45c 3-3]",
+    "features": [
+      "cm_residual",
+      "cm_residual_var",
+      "cm_residual_mean"
+    ],
+    "mean": [
+      0.1142364889383316,
+      21.148679733276367,
+      0.03261670470237732
+    ],
+    "std": [
+      4.592540264129639,
+      11.719233512878418,
+      0.7663779258728027
+    ],
+    "std_is_safe": [
+      false,
+      false,
+      false
+    ]
+  },
+  "note": "Firmware should hardcode mean[i] and std[i] arrays as float32. For each feature: x_norm = (x - mean[i]) / std[i]. No clipping. F5 (tof_meas_rate) has std=0 in training data \u2192 mapped to std_safe=1.0; normalized value is always (1.0 - 1.0) / 1.0 = 0."
+}
