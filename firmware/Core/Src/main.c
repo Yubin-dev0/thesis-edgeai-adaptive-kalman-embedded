@@ -2,8 +2,36 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : E1 Baseline measurement firmware
+  * @brief          : E3 Dynamic Occlusion measurement firmware
   *                    Dual KF (Fixed + CM-AKF), B1 trigger, HC-SR04, 25-col CSV
+  *
+  **
+  * [E3 PATCH 2026-05-20] changes vs E2:
+  *   - CSV_SCENARIO_ID: 2U -> 3U (E3 Dynamic Occlusion)
+  *   - Banner/result labels: "E2 Reflectivity" -> "E3 Dynamic Occlusion"
+  *   - Scenario: aluminum panel manually inserted into ToF beam path
+  *     at ~100mm wall distance for <1s when robot reaches 250mm.
+  *     Note: thesis 4.2 statement on "no manual occlusion" needs
+  *     section update — change of method made after empirical
+  *     confirmation that black foam board fails to produce
+  *     range_status != 0.
+  *   - TinyML #if 0 unchanged (still disabled, awaiting stage 4-C).
+  *
+  * [E2 PATCH 2026-05-20] changes vs E1 baseline firmware:
+  *   - CSV_SCENARIO_ID: 1U -> 2U (E2)
+  *   - Banner/result labels: "E1 Baseline" -> "E2 Reflectivity"
+  *   - TinyML 4-B-2 inference call disabled (#if 0 ... #endif).
+  *     Reason: ai_init() currently fails (ai_infer_count==0) and
+  *     leaving the disabled inference path in place corrupts UART
+  *     integrity (~98% vs the clean 100% seen in E1 run01~05).
+  *     The call will be re-enabled in stage 4-C together with the
+  *     kf_tinyml instance, 28-column CSV, and ai_init() fix.  Until
+  *     then this firmware is a Fixed/CM-only logger, which is
+  *     exactly what E2 learning-data collection needs.
+  *   - ai_init() is still called at boot.  The STAI runtime is
+  *     linked in but never invoked, so the timing instrumentation
+  *     prints nothing (ai_infer_count==0 -> guarded printf is
+  *     skipped).  This is the intended state for E2.
   *
   * Changes from Phase 6 Step 6 v2:
   *   - PHASE6_N_TEST_LOOPS: 360000 -> 1000 (E1 run length, ~5s @ 200Hz)
@@ -37,6 +65,15 @@
   *   The 200Hz main loop itself is unchanged (sensors, HC-SR04, CSV,
   *     timing instrumentation all still run at 200Hz) -> RQ1 intact.
   *
+  * [F5 FIX] tof_meas_rate definition corrected (2026-05-19)
+  *   The CSV field tof_meas_rate previously held the step-to-step ToF
+  *   distance change-rate.  Per thesis Table 3-1, F5 Measurement Rate
+  *   is the ratio of range_status==0 within a W=20 sliding window of
+  *   ToF measurements.  It is now computed that way (circular buffer
+  *   of the last 20 range_status values).  The CSV column name
+  *   tof_meas_rate is kept for compatibility with the analysis tools;
+  *   only its meaning changed.
+  *
   * Encoder sign note:
   *   R-side encoder is inverted at one point:
   *     int16_t dr = -(enc_r_now - enc_r_prev);
@@ -60,6 +97,9 @@
 #include "vl53l0x_api.h"
 #include "vl53l0x_platform.h"
 #include "kalman_filter.h"
+
+#include "stai.h"
+#include "network.h"
 
 /* USER CODE END Includes */
 
@@ -95,7 +135,7 @@
 
 #define LOG_DECIMATION          4U
 #define CSV_BUF_SIZE            512U      /* widened for 25-column line       */
-#define CSV_SCENARIO_ID         1U        /* E1 (change per scenario)         */
+#define CSV_SCENARIO_ID         3U        /* E3 Dynamic Occlusion (change per scenario) */
 
 #define IWDG_REFRESH_EVERY      10U     /* refresh every 10 loops = 50ms */
 #define IWDG_RELOAD_VAL         4000U   /* 4000*64/32000 = 8.0s timeout  */
@@ -149,6 +189,19 @@ volatile uint32_t isr_overrun_count = 0;
 
 static char  csv_tx_buf[CSV_BUF_SIZE];
 
+/* TinyML AI inference - Stage 4-A: init only, no inference yet */
+static stai_network ai_net;
+static uint8_t ai_activations[196] __attribute__((aligned(8)));
+static float    ai_input[6];
+static float    ai_output[1];
+static uint8_t  ai_initialized = 0;
+
+/* TinyML 4-B-1: dummy inference + DWT timing */
+static uint32_t ai_infer_count    = 0;       /* 누적 추론 횟수             */
+static uint32_t ai_infer_cycles_sum = 0;     /* DWT 사이클 합 (평균용)     */
+static uint32_t ai_infer_cycles_max = 0;     /* 최악값                     */
+static float    ai_last_R          = 0.0f;   /* 마지막 추론 결과 (디버그)  */
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -181,6 +234,71 @@ static void Wait_For_B1(void);            /* block until B1 pressed (IWDG-safe) 
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/* TinyML AI initialization - Stage 4-A */
+static void ai_init(void)
+{
+    stai_return_code rc;
+    stai_ptr act_ptrs[1] = { (stai_ptr)ai_activations };
+    stai_ptr in_ptrs[1]  = { (stai_ptr)ai_input };
+    stai_ptr out_ptrs[1] = { (stai_ptr)ai_output };
+
+    rc = stai_network_init(&ai_net);
+    if (rc != STAI_SUCCESS) return;
+
+    rc = stai_network_set_activations(&ai_net, act_ptrs, 1);
+    if (rc != STAI_SUCCESS) return;
+
+    rc = stai_network_set_inputs(&ai_net, in_ptrs, 1);     /* ptrs 먼저, n 나중 */
+    if (rc != STAI_SUCCESS) return;
+
+    rc = stai_network_set_outputs(&ai_net, out_ptrs, 1);   /* ptrs 먼저, n 나중 */
+    if (rc != STAI_SUCCESS) return;
+
+    ai_initialized = 1;
+}
+
+/* TinyML 4-B-1: dummy inference call + DWT cycle measurement.
+ * Inputs are filled with constant 0.5f (dummy — not yet F1..F6).
+ * Output is read but not used (KF/CSV unchanged).
+ * Goal: confirm STAI runtime actually executes inference, and
+ * measure cycles so we can verify the timing budget (RQ1). */
+/* TinyML 4-B-2: real feature inference.
+ * Inputs are the 6 features per thesis Table 3-1, sourced from
+ * kf_cm and recent sensor state.  No normalisation yet (trained
+ * model + per-feature min/max will be hardcoded later, thesis 4.4).
+ * Output is read but not used (KF/CSV unchanged).
+ *
+ * Called every ToF measurement, just BEFORE kf_predict/kf_update,
+ * so F1..F3 reflect the residual statistics from the most recent
+ * KF update (Table 3-1 "KF Update 직전"). */
+static void ai_run_real(float f1_residual,
+                        float f2_residual_var,
+                        float f3_residual_mean,
+                        float f4_sensor_disagree,
+                        float f5_meas_rate,
+                        float f6_signal_rate)
+{
+    if (!ai_initialized) return;
+
+    ai_input[0] = f1_residual;
+    ai_input[1] = f2_residual_var;
+    ai_input[2] = f3_residual_mean;
+    ai_input[3] = f4_sensor_disagree;
+    ai_input[4] = f5_meas_rate;
+    ai_input[5] = f6_signal_rate;
+
+    uint32_t t0 = DWT->CYCCNT;
+    stai_return_code rc = stai_network_run(&ai_net, STAI_MODE_SYNC);
+    uint32_t cycles = DWT->CYCCNT - t0;
+
+    if (rc != STAI_SUCCESS) return;
+
+    ai_infer_count++;
+    ai_infer_cycles_sum += cycles;
+    if (cycles > ai_infer_cycles_max) ai_infer_cycles_max = cycles;
+    ai_last_R = ai_output[0];
+}
 
 /* USER CODE END 0 */
 
@@ -232,7 +350,7 @@ int main(void)
   printf("\r\n");
   HAL_IWDG_Refresh(&hiwdg);
   printf("========================================\r\n");
-  printf(" E1 Baseline - Dual KF (Fixed + CM-AKF)\r\n");
+  printf(" E3 Dynamic Occlusion - Dual KF (Fixed + CM-AKF)\r\n");
   printf(" Scenario:  %u   N=%lu loops (~5s @ 200Hz)\r\n",
          (unsigned)CSV_SCENARIO_ID, (unsigned long)PHASE6_N_TEST_LOOPS);
   printf(" Mode:      C (predict+update 1:1, synced to ToF DataReady)\r\n");
@@ -270,6 +388,8 @@ int main(void)
   HAL_IWDG_Refresh(&hiwdg);
   VL53L0X_Setup();
   HAL_IWDG_Refresh(&hiwdg);
+
+  ai_init();
 
   /* Dual Kalman Filter: fixed (use_akf=false) and CM-AKF (use_akf=true) */
   KalmanFilter kf_fixed;
@@ -333,9 +453,19 @@ int main(void)
   uint8_t  vl_last_status      = 0xFF;
   float    vl_last_signal_mcps = 0.0f;
   float    vl_last_ambient_mcps = 0.0f;
-  uint16_t vl_prev_dist_mm     = 0;       /* for tof_meas_rate                */
-  uint8_t  vl_have_prev        = 0;
-  float    tof_meas_rate       = 0.0f;
+  /* F5 Measurement Rate (thesis Table 3-1):
+   * ratio of range_status==0 within a W=20 sliding window of ToF
+   * measurements.  NOT the step-to-step ToF change-rate (the old
+   * implementation).  W=20 matches the KF residual window so the
+   * two statistics share the same time scale.
+   * Implemented as a circular buffer of the last 20 range_status
+   * values; F5 = (count of status==0) / (filled entries). */
+  #define F5_WINDOW_SIZE   20U
+  uint8_t  f5_status_buf[F5_WINDOW_SIZE] = {0};   /* 1 = status0, 0 = not */
+  uint16_t f5_buf_idx          = 0;       /* next write position           */
+  uint16_t f5_buf_count        = 0;       /* valid entries (max = W)       */
+  uint16_t f5_status0_in_win   = 0;       /* running count of status0      */
+  float    tof_meas_rate       = 0.0f;    /* CSV field: now = F5 ratio     */
 
   /* HC-SR04 */
   float    us_dist_mm          = 0.0f;
@@ -432,12 +562,27 @@ int main(void)
               vl_last_signal_mcps  = (float)m.SignalRateRtnMegaCps  / 65536.0f;
               vl_last_ambient_mcps = (float)m.AmbientRateRtnMegaCps / 65536.0f;
 
-              /* tof_meas_rate = change in ToF distance between measurements */
-              if (vl_have_prev) {
-                  tof_meas_rate = (float)vl_last_dist_mm - (float)vl_prev_dist_mm;
+              /* ---- F5 Measurement Rate: status==0 ratio over W=20 ----
+               * Every ToF measurement (status 0 or not) is pushed into
+               * the circular buffer.  f5_status0_in_win is kept as a
+               * running count so the ratio is O(1).  This is the thesis
+               * Table 3-1 definition; the old change-rate code is gone. */
+              {
+                  uint8_t is_status0 = (m.RangeStatus == 0) ? 1U : 0U;
+                  if (f5_buf_count >= F5_WINDOW_SIZE) {
+                      /* buffer full: subtract the entry being overwritten */
+                      f5_status0_in_win -= f5_status_buf[f5_buf_idx];
+                  }
+                  f5_status_buf[f5_buf_idx] = is_status0;
+                  f5_status0_in_win += is_status0;
+                  f5_buf_idx = (f5_buf_idx + 1U) % F5_WINDOW_SIZE;
+                  if (f5_buf_count < F5_WINDOW_SIZE) {
+                      f5_buf_count++;
+                  }
+                  tof_meas_rate = (f5_buf_count > 0U)
+                      ? ((float)f5_status0_in_win / (float)f5_buf_count)
+                      : 0.0f;
               }
-              vl_prev_dist_mm = vl_last_dist_mm;
-              vl_have_prev    = 1;
 
               if (m.RangeStatus == 0) {
                   vl_status0_count++;
@@ -484,6 +629,22 @@ int main(void)
                               KF_R_INIT, KF_R_INIT);
                       kf_initialised = 1;
                   } else {
+#if 0  /* TinyML 4-B-2 — DISABLED for E2/E3 measurement.
+        * Re-enable in stage 4-C together with kf_tinyml instance,
+        * 28-column CSV, and ai_init() failure fix.  Until then
+        * this firmware is a Fixed/CM-only logger (matches E1
+        * run01~05 collected with 0 drops). */
+                	float ai_f2_var = 0.0f, ai_f3_mean = 0.0f;
+                	kf_get_residual_stats(&kf_cm, &ai_f3_mean, &ai_f2_var);
+                	float ai_f4_disagree = fabsf((float)vl_last_dist_mm - us_dist_mm);
+
+                	ai_run_real(kf_cm.residual,    /* F1 */
+                	            ai_f2_var,         /* F2 */
+                	            ai_f3_mean,        /* F3 */
+                	            ai_f4_disagree,    /* F4 */
+                	            tof_meas_rate,     /* F5 */
+                	            vl_last_signal_mcps); /* F6 */
+#endif
                       /* one predict (whole accumulated displacement) */
                       kf_predict(&kf_fixed, -u_kf);
                       kf_predict(&kf_cm,    -u_kf);
@@ -600,7 +761,7 @@ int main(void)
 
   HAL_IWDG_Refresh(&hiwdg);
 
-  printf("\r\n# ===== E1 Baseline Run Results =====\r\n");
+  printf("\r\n# ===== E3 Dynamic Occlusion Run Results =====\r\n");
   HAL_IWDG_Refresh(&hiwdg);
   printf("# Loops:                  %lu\r\n", (unsigned long)loop_count);
   printf("# TIM6 ticks:             %lu\r\n", (unsigned long)total_ticks);
@@ -632,11 +793,21 @@ int main(void)
          (unsigned long)csv_tx_attempts,
          (unsigned long)csv_tx_drops,
          (unsigned long)csv_seq);
+  if (ai_infer_count > 0) {
+      uint32_t hclk_mhz = HAL_RCC_GetHCLKFreq() / 1000000U;
+      uint32_t mean_ns = (uint32_t)(((uint64_t)ai_infer_cycles_sum * 1000U) / ai_infer_count) / hclk_mhz;
+      uint32_t max_ns  = (uint32_t)((uint64_t)ai_infer_cycles_max * 1000U) / hclk_mhz;
+      printf("# TinyML infer: count=%lu mean=%lu.%03lu us max=%lu.%03lu us last_R=%.4f\r\n",
+             (unsigned long)ai_infer_count,
+             (unsigned long)(mean_ns / 1000U), (unsigned long)(mean_ns % 1000U),
+             (unsigned long)(max_ns  / 1000U), (unsigned long)(max_ns  % 1000U),
+             ai_last_R);
+  }
   printf("# IWDG:      refreshes=%lu (every %lu loops, timeout 8s)\r\n",
          (unsigned long)iwdg_refresh_count, (unsigned long)IWDG_REFRESH_EVERY);
   HAL_IWDG_Refresh(&hiwdg);
 
-  printf("# RESULT: E1 run complete (scenario %u). Check CSV on PC.\r\n",
+  printf("# RESULT: E3 run complete (scenario %u). Check CSV on PC.\r\n",
          (unsigned)CSV_SCENARIO_ID);
   printf("# ==================================\r\n");
   HAL_IWDG_Refresh(&hiwdg);
