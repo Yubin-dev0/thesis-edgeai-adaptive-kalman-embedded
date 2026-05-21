@@ -137,7 +137,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define PHASE6_N_TEST_LOOPS     360000U   /* E4: 200Hz x 1800s = 30 min       */
+#define PHASE6_N_TEST_LOOPS     1000U     /* E5: ~5s @ 200Hz */
 #define PHASE6_LOOP_BUDGET_US   4500U
 
 #define VL53L0X_TIMING_BUDGET_US    20000U
@@ -159,7 +159,7 @@
  * equivalent. */
 #define PULSES_TO_KF_U          (MM_PER_PULSE / 0.005f)   /* KF_B = 0.005 */
 
-#define LOG_DECIMATION          4U
+#define LOG_DECIMATION          5U
 #define CSV_BUF_SIZE            512U      /* widened for 25-column line       */
 #define CSV_SCENARIO_ID         4U        /* (change per scenario) */
 
