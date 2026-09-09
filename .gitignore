@@ -1,4 +1,4 @@
-.metadata/ 
+.metadata/
 firmware/Debug/
 firmware/.settings/
 *.elf
@@ -15,4 +15,5 @@ firmware/.settings/
 tools/tinyml/*.keras
 tools/tinyml/data/
 tools/tinyml/__pycache__/
-*.launch 
+*.launch
+tools/logger_cli_debug.py
