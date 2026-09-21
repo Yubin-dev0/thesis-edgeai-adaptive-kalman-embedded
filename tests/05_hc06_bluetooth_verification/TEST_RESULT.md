@@ -16,7 +16,7 @@ This is a prerequisite for Phase 6 (sensor + KF integration) and Phase 7 (full s
 
 ### 2.1 HC-06 Module
 
-The HC-06 is a Bluetooth 2.0 + EDR module implementing the Serial Port Profile (SPP). It exposes a transparent UART interface on the MCU side and appears as a virtual COM port on the paired host. The unit used in this project (SZH-EK010, 4-pin DIP) is a Linvor-firmware clone operating at 3.3 V with a default UART baud rate of 9600.
+The HC-06 is a Bluetooth 2.0 + EDR module implementing the Serial Port Profile (SPP). It exposes a transparent UART interface on the MCU side and appears as a virtual COM port on the paired host. The unit used in this project (SZH-EK010) is a Linvor-firmware clone with a default UART baud rate of 9600. It is the HC-06 chip module mounted on a 4-pin carrier board with an on-board LDO; the silkscreen rates VCC at 3.6–6 V, and the Bluetooth chip itself runs at 3.3 V behind the LDO.
 
 ### 2.2 AT Command Mode
 
@@ -47,8 +47,8 @@ On the NUCLEO-F446RE, PA2/PA3 (USART2) are routed to the ST-LINK virtual COM por
 | Component | Specification | Role |
 |-----------|---------------|------|
 | MCU board | NUCLEO-F446RE | UART host |
-| Bluetooth module | HC-06 (SZH-EK010, 4-pin DIP, Linvor firmware) | Wireless UART bridge |
-| Operating voltage | 3.3 V | Direct from NUCLEO 3.3 V pin |
+| Bluetooth module | HC-06 (SZH-EK010, 4-pin carrier board with LDO, Linvor firmware) | Wireless UART bridge |
+| Supply in this phase | 3.3 V | Direct from NUCLEO 3.3 V pin — below the board's 3.6–6 V VCC rating (see correction below) |
 | Host PC | Windows 11 + built-in Bluetooth adapter | SPP virtual COM endpoint |
 
 ### 3.3 Pin Assignments
@@ -59,13 +59,15 @@ UART2 (PA2/PA3) was abandoned due to the SB62/SB63 issue. The MCU-side interface
 |----------|-----|------------|-------|
 | HC-06 RX (MCU TX) | PC6 | USART6_TX, AF8 | DMA TX enabled (DMA2 Stream6) |
 | HC-06 TX (MCU RX) | PC7 | USART6_RX, AF8 | Interrupt enabled |
-| HC-06 VCC | 3V3 | NUCLEO 3.3 V pin | 40 mA operating, 1 mA standby |
+| HC-06 VCC | 3V3 | NUCLEO 3.3 V pin | 40 mA operating, 1 mA standby; below 3.6 V board minimum |
 | HC-06 GND | GND | Common ground | — |
 | Debug UART | PA2/PA3 | USART2 | ST-LINK VCP, 115200 baud |
 
 ### 3.4 Power Considerations
 
-The HC-06 SZH-EK010 module accepts 3.3 V directly (bare DIP, no onboard LDO). The NUCLEO 3.3 V rail provides sufficient current for the module's 40 mA peak draw, eliminating the need for a separate buck converter during this verification phase.
+The NUCLEO 3.3 V rail provides sufficient current for the module's 40 mA peak draw, so no separate supply was used during this verification phase.
+
+> **Correction (2026-09).** An earlier version of this report described the SZH-EK010 as a bare DIP module with no on-board LDO that accepts 3.3 V directly. That was wrong. The module is the HC-06 chip on a 4-pin carrier board that includes an LDO, and the board's silkscreen rates VCC at 3.6–6 V. Supplying it with 3.3 V from the NUCLEO in this phase was therefore below the board's rated minimum. The link still met every Phase 5 pass criterion, but this was out-of-spec operation, not a design decision. From Phase 7 onward the module is supplied from a separate 6 V battery pack through a 5 V LM2596 buck converter, which is within the 3.6–6 V rating.
 
 ## 4. CubeMX / CubeIDE Configuration
 
@@ -252,7 +254,7 @@ The receive side captures a 997-row window from the middle of the run because Pu
 | MCU UART | USART6 (PC6 TX, PC7 RX, AF8) |
 | Baud rate (final) | 115200 |
 | DMA channel | DMA2 Stream6 Channel 5 (TX only) |
-| HC-06 power | 3.3 V direct from NUCLEO |
+| HC-06 power (this phase) | 3.3 V from NUCLEO — below 3.6 V board minimum; moved to 6 V pack + 5 V buck in Phase 7 |
 | HC-06 pairing PIN | 1234 |
 | HC-06 baud (EEPROM) | 115200 (persistent) |
 | Host SPP COM port | COM5 (Outgoing) on Windows 11 |
