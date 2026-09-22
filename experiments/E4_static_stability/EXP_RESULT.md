@@ -235,6 +235,8 @@ robot does not move. The encoder distance stays ≈0 throughout (verified:
 - **4.2 Table 4-4 (E4 row)** — add the wall material, currently blank:
   "robot stationary (motors OFF), **white foam-board 8-section** wall at
   500 mm, 30-min continuous static logging; battery ADC monitoring."
+  *(2026-09-22: the "battery ADC monitoring" clause is not accurate — no
+  ADC sampling exists in the firmware; see Section 12.)*
 - **4.2 E4 body** — add one sentence: "The wall surface uses the same white
   foam-board as E1 to control the surface variable, isolating long-term
   factors (battery discharge, thermal effects, cumulative error) for
@@ -270,5 +272,8 @@ robot does not move. The encoder distance stays ≈0 throughout (verified:
   since there is no displacement to mispredict.
 - run02 logger header was missed at boot (saved as `col0..col27`, data from
   seq=1843); corrected manually before post-processing handoff.
-- The 3 runs were measured back-to-back (90 min total); battery monitoring
-  via ADC1 IN4 (PA4) ran throughout for the long-term discharge record.
+- The 3 runs were measured back-to-back (90 min total). *(Correction,
+  2026-09-22: an earlier version stated that battery monitoring via ADC1
+  IN4 (PA4) ran throughout. PA4 is not wired on the robot and the firmware
+  contains no ADC sampling code — ADC1 is only initialised. No battery
+  voltage record exists for these runs.)*
