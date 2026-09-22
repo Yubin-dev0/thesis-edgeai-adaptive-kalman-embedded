@@ -67,7 +67,7 @@ UART2 (PA2/PA3) was abandoned due to the SB62/SB63 issue. The MCU-side interface
 
 The NUCLEO 3.3 V rail provides sufficient current for the module's 40 mA peak draw, so no separate supply was used during this verification phase.
 
-> **Correction (2026-09).** An earlier version of this report described the SZH-EK010 as a bare DIP module with no on-board LDO that accepts 3.3 V directly. That was wrong. The module is the HC-06 chip on a 4-pin carrier board that includes an LDO, and the board's silkscreen rates VCC at 3.6–6 V. Supplying it with 3.3 V from the NUCLEO in this phase was therefore below the board's rated minimum. The link still met every Phase 5 pass criterion, but this was out-of-spec operation, not a design decision. From Phase 7 onward the module is supplied from a separate 6 V battery pack through a 5 V LM2596 buck converter, which is within the 3.6–6 V rating.
+> **Correction (2026-09).** An earlier version of this report described the SZH-EK010 as a bare DIP module with no on-board LDO that accepts 3.3 V directly. That was wrong. The module is the HC-06 chip on a 4-pin carrier board that includes an LDO, and the board's silkscreen rates VCC at 3.6–6 V. Supplying it with 3.3 V from the NUCLEO in this phase was therefore below the board's rated minimum. The link still met every Phase 5 pass criterion, but this was out-of-spec operation, not a design decision. In Phase 7 a separate supply was trialled and the final as-built configuration (verified 2026-09-22) is that separate supply: HC-06 VCC from a second LM2596 buck (YwRobot PWR060010, same model as buck #1) on a 4×AA 6 V pack, BT-domain GND tied to the main GND rail by a single jumper. The buck #2 output voltage was not measured; the nominal 5 V is within the 3.6–6 V rating. (Some Phase 7 endurance runs were captured with the HC-06 on the main 5 V rail — see tests/07.)
 
 ## 4. CubeMX / CubeIDE Configuration
 
@@ -254,7 +254,7 @@ The receive side captures a 997-row window from the middle of the run because Pu
 | MCU UART | USART6 (PC6 TX, PC7 RX, AF8) |
 | Baud rate (final) | 115200 |
 | DMA channel | DMA2 Stream6 Channel 5 (TX only) |
-| HC-06 power (this phase) | 3.3 V from NUCLEO — below 3.6 V board minimum; moved to 6 V pack + 5 V buck in Phase 7 |
+| HC-06 power (this phase) | 3.3 V from NUCLEO — below 3.6 V board minimum; final build uses a separate 4×AA 6 V pack + LM2596 buck #2 (as-built, 2026-09-22) |
 | HC-06 pairing PIN | 1234 |
 | HC-06 baud (EEPROM) | 115200 (persistent) |
 | Host SPP COM port | COM5 (Outgoing) on Windows 11 |
