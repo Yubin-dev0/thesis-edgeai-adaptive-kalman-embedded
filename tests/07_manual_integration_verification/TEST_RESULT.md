@@ -53,17 +53,27 @@ CSV, 50 Hz) was captured over HC-06 Bluetooth by a custom CLI logger.
 ### Encoder-sign firmware bug (found and fixed)
 
 Initial rolls showed the KF kinematic input collapsing to near-zero even
-though the robot was clearly moving. Root cause: the two wheel motors face
-opposite directions, so the right encoder counts with the opposite sign of
-the left. An earlier hardware change — the right motor wiring was reversed
-to correct its rotation direction — also reversed its encoder polarity. The
-firmware averaged the two channels as `(dL + dR)/2`, so the opposite signs
-cancelled and the KF `predict` step received ~0 input.
+though the robot was clearly moving. Root cause: the left and right motors
+are mounted as mirror images of each other, so for the same forward chassis
+motion the right encoder (TIM4, `enc_r`) counts with the opposite sign of
+the left (TIM2, `enc_l`). The firmware averaged the two channels as
+`(dL + dR)/2`, so the opposite signs cancelled and the KF `predict` step
+received ~0 input.
+
+> **Correction (2026-09-22, verified on the robot).** An earlier version of
+> this section attributed the sign flip to "the right motor wiring being
+> reversed". That was wrong on two counts: the Phase 4B output-side swap
+> (BOUT1 ↔ BOUT2, tests/04B Issue 3) was made on the **left** motor (B
+> channel), not the right; and swapping a motor's power leads only reverses
+> its rotation direction — the encoder is a separate sensor on the motor
+> shaft, so its A/B polarity is unaffected. The sign inversion is purely a
+> consequence of the mirror-symmetric mounting, and the correction is
+> applied to the right channel (the one whose leads were *not* swapped).
 
 Fix (single line, at the encoder read site):
 
 ```c
-int16_t dr = -(enc_r_now - enc_r_prev);   // right motor wiring reversed
+int16_t dr = -(enc_r_now - enc_r_prev);   // right encoder: mirror-mounted motor
 ```
 
 Applying the correction at the data-entry point fixes every downstream
@@ -123,6 +133,15 @@ dominant coupling path is radiated (electromagnetic) rather than through
 the shared power rails. Further hardware mitigation (shielding) is beyond
 the scope of this verification phase, so hardware mitigation was stopped.
 
+> **As-built note (2026-09-22, verified on the robot).** Both mitigations
+> were tried in this phase; what remains on the final build differs:
+> - The separate HC-06 supply **is** the final configuration: HC-06 VCC is
+>   fed from buck #2 (LM2596, same YwRobot PWR060010 model as buck #1) on a
+>   4×AA 6 V pack, with the BT-domain GND tied to the main GND rail by a
+>   single jumper. Buck #2 output voltage was not measured.
+> - Of the motor-terminal 100 nF capacitors, only the one across the **left**
+>   motor terminals remains; the right motor has none.
+
 ### Impact on the main experiments — assessed, not blocking
 
 The loss is whole-frame dropout in a 200 Hz time series, with positions
@@ -171,6 +190,10 @@ endurance test; battery voltage may be recorded once at start and once at end.
 
 ### Clean run — run91 (full 30 min, fully charged battery)
 
+HC-06 supply for this run: main 5 V rail, same as run90. (The final as-built
+configuration after E1–E5 is the separate buck #2 supply — verified
+2026-09-22 — but run90 and run91 were captured on main power.)
+
 - Duration: **exactly 1,800.0 s (30.00 min)** — seq 0 to 89,999, the full
   90,000-row log (360,000 loops at 200 Hz / 50 Hz log). The firmware
   completed the test loop and terminated normally.
@@ -189,7 +212,9 @@ endurance test; battery voltage may be recorded once at start and once at end.
 
 ### Earlier attempts (context)
 
-- **run90** (HC-06 on main power): reached the full 90,000 frames, 0
+- **run90** (HC-06 on main power at the time of this run; the final as-built
+  configuration after E1–E5 is the separate buck #2 supply, verified
+  2026-09-22): reached the full 90,000 frames, 0
   corrupted rows. Showed one reset at ~56 s, then ran to seq 89,999.
 - **run89** (HC-06 on separate power): stopped at ~11.35 min (seq 34,065),
   0 resets while it ran. The capture ended cleanly — the firmware showed no

@@ -36,6 +36,8 @@
 | Debug UART TX | PA2 | USART2 |
 | Debug UART RX | PA3 | USART2 |
 
+Left/right mapping on the final build (verified 2026-09-22): **Encoder 1 / M1 / TIM2 = left wheel** (TB6612 B channel, firmware `enc_l`); **Encoder 2 / M2 / TIM4 = right wheel** (TB6612 A channel, firmware `enc_r`). "Front" is the direction the VL53L0X / HC-SR04 face.
+
 ## Troubleshooting Notes
 
 - **E5V pin is for external power input only** — when using USB power, use the 5V pin on the Arduino header or CN7 pin 18 instead.

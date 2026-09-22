@@ -20,7 +20,7 @@ This is also the empirical basis for the Phase 7 verification strategy decision:
 
 In a 2WD platform with shared electrical infrastructure, the VL53L0X is exposed to four motor-related noise paths:
 
-1. **PWM electrical noise on power rail** — TB6612FNG switching at ~2.75 kHz (TIM1 ARR=65535, HCLK=180 MHz) draws pulsed current from the LiPo, which propagates through the Buck converter to the 5 V rail and into the NUCLEO's internal LDO that feeds the VL53L0X 3.3 V supply.
+1. **PWM electrical noise on power rail** — TB6612FNG switching at ~2.75 kHz (TIM1 ARR=65535, HCLK=180 MHz) draws pulsed current from the LiPo, which propagates through the Buck converter to the 5 V rail and into the NUCLEO's internal LDO that feeds the VL53L0X 3.3 V supply. *(As-built note, 2026-09-22: on the final build the VL53L0X breakout VIN is on the +5 V rail and regulated by the breakout's own on-board regulator; only the two 4.7 kΩ I²C pull-ups are on 3V3. The 3.3 V-supply wording reflects the wiring at the time of this phase.)*
 2. **Motor EMI** — brushed DC motors generate broadband electromagnetic interference from commutator arcing. Long signal traces (I²C SDA/SCL on jumper wires) can pick up this radiation.
 3. **Ground bounce** — high-current motor return paths through a shared ground network can shift the local ground reference seen by the I²C lines, causing intermittent NACKs.
 4. **Mechanical vibration** — once the chassis is on a surface and the wheels are rolling, motor torque variations transmit through the chassis to the sensor mount, perturbing the optical axis.
@@ -62,10 +62,10 @@ The full setup integrates Phases 0–5 hardware on a single A4 acrylic plate: Li
 
 | Function | Pin | Peripheral | Notes |
 |----------|-----|------------|-------|
-| Motor A PWM | PA8 | TIM1_CH1 | Duty 32768 / 65535 = 50 % |
-| Motor B PWM | PA9 | TIM1_CH2 | Duty 32768 / 65535 = 50 % |
-| Motor A direction | PC8 / PC9 | GPIO Output | AIN1=HIGH, AIN2=LOW |
-| Motor B direction | PC10 / PC11 | GPIO Output | BIN1=HIGH, BIN2=LOW (corrected at wiring level for chassis-relative direction) |
+| Motor A PWM (right) | PA8 | TIM1_CH1 | Duty 32768 / 65535 = 50 % |
+| Motor B PWM (left) | PA9 | TIM1_CH2 | Duty 32768 / 65535 = 50 % |
+| Motor A direction (right) | PC8 / PC9 | GPIO Output | AIN1=HIGH, AIN2=LOW |
+| Motor B direction (left) | PC10 / PC11 | GPIO Output | BIN1=HIGH, BIN2=LOW (corrected at wiring level for chassis-relative direction) |
 | Motor driver STBY | PC12 | GPIO Output | HIGH = enabled |
 | VL53L0X I²C | PB8 / PB9 | I2C1 (SCL/SDA) | 4.7 kΩ pull-up to 3.3 V |
 | HC-SR04 Trigger | PA1 | GPIO Output | 10 µs pulse via DWT |
@@ -283,7 +283,7 @@ The footage corresponds to `puttyBT_running.log` samples 1–100.
 
 **Root cause:** On a 2WD platform, the left and right motors are physically mounted as mirror images of each other. The same electrical signal therefore produces opposite chassis-relative rotation. This is a standard 2WD design feature, not a wiring error.
 
-**Resolution:** Swapped the motor B wire pair at the TB6612FNG output side (BOUT1 ↔ BOUT2). This inverts motor B's direction without touching the firmware logic, keeping the AIN/BIN signal pattern symmetric. After the swap, both wheels rotated in the same chassis direction at the same direction signals.
+**Resolution:** Swapped the motor B wire pair at the TB6612FNG output side (BOUT1 ↔ BOUT2). Motor B is the **left** motor (B channel = left wheel = TIM2 encoder; A channel = right wheel = TIM4 encoder; "front" is the direction the VL53L0X / HC-SR04 face — verified on the robot 2026-09-22). This inverts motor B's direction without touching the firmware logic, keeping the AIN/BIN signal pattern symmetric. After the swap, both wheels rotated in the same chassis direction at the same direction signals. Note that swapping the motor power leads changes only the rotation direction; the encoder on that motor is unaffected, so the encoder sign handling in firmware (Phase 7) is a separate consequence of the mirror mounting, not of this swap.
 
 **Lesson:** For 2WD platforms, motor direction correction is best handled at the wiring level (motor terminal swap) rather than in firmware. This keeps the abstraction clean — "both motors forward" means the same signal pattern in code regardless of physical mounting.
 

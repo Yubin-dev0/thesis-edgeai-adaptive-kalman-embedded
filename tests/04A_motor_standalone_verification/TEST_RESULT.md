@@ -6,6 +6,8 @@
 **Motor**: FIT0450 (1 unit, M1 / A-channel only)
 **Power chain**: 2S LiPo (7.4V) → JMOD VIN/VCC (motor power), NUCLEO 5V → JMOD +5V (logic)
 
+> Channel ↔ wheel mapping on the final build (verified 2026-09-22): TB6612 **A channel (AO1/AO2) = right motor = TIM4 encoder (`enc_r`)**, **B channel (BO1/BO2) = left motor = TIM2 encoder (`enc_l`)**. "M1/M2" in this report is a per-phase unit label, not a left/right designation.
+
 ## Confirmed Parameters
 
 | Parameter | Specification |

@@ -65,8 +65,9 @@ Items applied for the measurement:
       reset. While waiting, LD2 (green LED) blinks as the "press B1" cue;
       once pressed it stays solid ON to indicate "measuring".
 - [x] **Encoder sign correction** — `int16_t dr = -(enc_r_now - enc_r_prev);`
-      corrects the encoder sign (inverted by the R-motor wiring) at a single
-      entry point. enc_r_total, pos_r_mm and the KF input are all corrected
+      corrects the right-encoder sign (opposite to the left because the two
+      motors are mounted as mirror images — not a wiring effect; see
+      tests/07, correction of 2026-09-22) at a single entry point. enc_r_total, pos_r_mm and the KF input are all corrected
       in one place.
 - [x] **predict/update time-structure fix (Scheme C)** — *the key bug found
       and fixed during E1 measurement.* See Section 4.
