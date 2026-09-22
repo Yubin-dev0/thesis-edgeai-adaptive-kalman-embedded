@@ -79,7 +79,7 @@ Before any filter ran, every subsystem was verified in isolation with a written 
 
 | Phase | Subsystem | Report |
 |---|---|---|
-| 0 | Power rail / battery ADC | `tests/00_power_verification/` |
+| 0 | Power rail (LM2596 buck + 2S LiPo → 5 V) | `tests/00_power_verification/` |
 | 1 | VL53L0X ToF (I2C1) — noise vs distance, R₀ at 100 mm | `tests/01_vl53l0x_verification/` |
 | 2 | Quadrature encoders (TIM2/TIM4, 3840 PPR, 66 mm wheel) | `tests/02_encoder_verification/` |
 | 3 | HC-SR04 (TIM3 input capture) | `tests/03_hcsr04_verification/` |
@@ -115,11 +115,12 @@ docs/              Thesis PDF
 |---|---|
 | MCU | STM32F446RE NUCLEO, 180 MHz (HSE bypass), FPU |
 | Distance | VL53L0X ToF on I2C1 (PB8/PB9); HC-SR04 on TIM3 CH1 (PA6) / trigger PA1 |
-| Odometry | 2× quadrature encoders, TIM2 (PA15/PB3) & TIM4 (PB6/PB7), 4× decoding |
-| Drive | TB6612FNG on PC8–PC12, PWM on TIM1 CH1/CH2 (PA8/PA9) |
+| Odometry | 2× quadrature encoders, 4× decoding — left wheel TIM2 (PA15/PB3, `enc_l`), right wheel TIM4 (PB6/PB7, `enc_r`) |
+| Drive | TB6612FNG on PC8–PC12, PWM on TIM1 CH1/CH2 (PA8/PA9) — A channel (AO1/AO2) = right motor, B channel (BO1/BO2) = left motor. "Front" is the direction the VL53L0X / HC-SR04 face. |
 | Telemetry | HC-06 Bluetooth, USART6 (PC6/PC7) with TX DMA |
 | Timing | TIM6 200 Hz main loop, DWT cycle counter, IWDG ~2 s |
-| Power monitor | ADC1 IN4 (PA4) |
+| Power | NUCLEO fed at Morpho CN7-18 (+5 V) from buck #1 (LM2596, 2S LiPo); VL53L0X VIN and HC-SR04 VCC on that 5 V rail (VL53L0X breakout has its own on-board regulator; I²C pull-ups 4.7 kΩ ×2 to 3V3); HC-06 on a separate buck #2 (LM2596, 4×AA 6 V pack) with a single GND jumper to the main rail |
+| ADC | ADC1 IN4 (PA4) is enabled in the `.ioc` and initialised by `MX_ADC1_Init()`, but PA4 is not wired and no sampling code exists — no battery monitoring in the as-built firmware |
 
 ---
 
