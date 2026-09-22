@@ -7,7 +7,7 @@ Validate HC-SR04 distance measurement using TIM3 Input Capture interrupts (no po
 - **MCU**: STM32 NUCLEO-F446RE (HSE 8MHz BYPASS via ST-LINK MCO → PLL → 180MHz SYSCLK)
 - **Sensor**: HC-SR04 ultrasonic ranging module
 - **Power**: NUCLEO 5V (USB-powered)
-- **Decoupling**: 100nF ceramic capacitor across HC-SR04 VCC–GND
+- **Decoupling**: 100nF ceramic capacitor across HC-SR04 VCC–GND — *not present on the final build (verified 2026-09-22); the +5 V rail feeding HC-SR04 and VL53L0X carries one 100 µF 16 V electrolytic instead*
 
 ### Wiring
 | HC-SR04 | NUCLEO Pin | Function |
@@ -62,7 +62,7 @@ The systematic offset (~-19 mm) is consistent across both multi-sheet measuremen
 
 ## Key Learnings
 1. **HSE BYPASS mode** is required on NUCLEO boards (not Crystal/Resonator) since the ST-LINK MCU supplies an 8 MHz clock signal directly.
-2. **100nF decoupling cap** placed at the sensor pins eliminated VCC noise during ultrasonic burst transmission.
+2. **100nF decoupling cap** placed at the sensor pins eliminated VCC noise during ultrasonic burst transmission. *(Phase 3 bench observation; the cap is not on the final build — see Hardware Setup.)*
 3. **TIM3 Input Capture with Both Edges polarity** allows capturing rising and falling edges on a single channel by toggling polarity in the ISR — no need for two channels.
 4. **DWT cycle counter** provides sub-microsecond delay precision and zero-overhead loop timing measurement, essential for verifying non-blocking behavior.
 5. **Systematic measurement offset** vs random jitter — when errors are consistent in magnitude and direction across samples, the root cause is almost always physical setup, not sensor or firmware.

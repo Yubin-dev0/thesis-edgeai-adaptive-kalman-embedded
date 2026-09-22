@@ -21,13 +21,15 @@
 | SCL    | PB8       | SCL         | 4.7 kΩ to 3V3 |
 | SDA    | PB9       | SDA         | 4.7 kΩ to 3V3 |
 
-- Decoupling: 100 nF ceramic capacitor across VIN-GND on the VL53L0X side
+- Decoupling: 100 nF ceramic capacitor across VIN-GND on the VL53L0X side — *not present on the final build (verified 2026-09-22)*
 - I2C clock speed: 100 kHz (Standard Mode)
 - I2C address: 0x29 (7-bit) / 0x52 (8-bit)
 
 ### Power
 - Single 3.3 V rail from NUCLEO 3V3 pin
 - Buck converter and LiPo not used in Phase 1 (sensor consumes < 20 mA)
+
+> **As-built note (2026-09-22).** The table above records the Phase 1 bench wiring. On the final robot the VL53L0X breakout **VIN is on the +5 V rail** (buck #1 → NUCLEO 5 V → breadboard rail; the breakout's on-board regulator steps it down for the sensor), the two 4.7 kΩ SCL/SDA pull-ups remain on **3V3**, and the 100 nF across VIN–GND was removed. The +5 V rail carries one 100 µF 16 V electrolytic (shared with HC-SR04).
 
 ---
 
