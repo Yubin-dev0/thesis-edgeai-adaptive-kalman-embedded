@@ -1,4 +1,4 @@
-col0,col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,col11,col12,col13,col14,col15,col16,col17,col18,col19,col20,col21,col22,col23,col24,col25,col26,col27
+seq,timestamp_ms,tof_distance_mm,tof_signal_rate,tof_range_status,us_distance_mm,encoder_distance_mm,encoder_speed_mms,sensor_disagree,tof_meas_rate,gt_distance_mm,scenario_id,fixed_estimate_mm,fixed_residual,fixed_residual_var,fixed_residual_mean,fixed_kalman_gain,fixed_innovation_cov,cm_estimate_mm,cm_residual,cm_residual_var,cm_residual_mean,cm_kalman_gain,cm_innovation_cov,cm_R,tinyml_estimate_mm,tinyml_R,tinyml_infer_us
 1843,36865,519,3.828,0,486.374,0.000,0.000,32.626,1.000,0.000,4,522.863,-4.737,27.913,-0.724,0.184351,29.424,522.789,-4.586,28.011,-0.638,0.173850,28.417,23.477,523.134,25.969,35
 1844,36885,521,3.742,0,486.374,0.000,0.000,34.626,1.000,0.000,4,522.520,-1.863,27.235,-0.590,0.184351,29.424,522.459,-1.789,27.284,-0.498,0.184560,27.533,22.451,522.784,25.969,35
 1845,36905,524,3.758,0,486.374,0.000,0.000,37.626,1.000,0.000,4,522.793,1.480,27.406,-0.531,0.184351,29.424,522.745,1.541,27.452,-0.440,0.186060,27.645,22.501,522.996,24.943,35

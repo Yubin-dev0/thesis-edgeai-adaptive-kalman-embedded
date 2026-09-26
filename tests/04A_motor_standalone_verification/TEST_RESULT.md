@@ -13,7 +13,7 @@
 | Parameter | Specification |
 |-----------|---------------|
 | PWM Timer | TIM1 CH1 (PA8), 10 kHz, 1000-step duty resolution |
-| PWM Prescaler / Period | 17 / 999 (180MHz APB2 → 10MHz → 10kHz PWM) |
+| PWM Prescaler / Period | 17 / 999 (180MHz APB2 → 10MHz → 10kHz PWM) — Phase 4-A test firmware only. The integrated firmware (`firmware/`) uses TIM1 PSC 0 / ARR 65535 (≈2.75 kHz); the two were never unified. Noted 2026-09-26. |
 | Direction control | GPIO PC8 (AIN1), PC9 (AIN2) |
 | Standby control | GPIO PC12 (STBY) |
 | Serial interface | USART2 (PA2/PA3) via ST-LINK Virtual COM Port, 115200 baud |

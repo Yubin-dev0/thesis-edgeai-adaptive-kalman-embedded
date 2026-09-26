@@ -104,6 +104,10 @@
   *   R-side encoder is inverted at one point:
   *     int16_t dr = -(enc_r_now - enc_r_prev);
   *   This corrects enc_r_total, pos_r_mm and the KF input at once.
+  *   Root cause (verified on the robot 2026-09-22): the two motors are
+  *   mounted mirror-symmetrically, so for the same forward motion the
+  *   right encoder counts in the opposite direction. It is NOT a wiring
+  *   issue - encoder A/B polarity is unaffected by the motor leads.
   *
   * IWDG: 8s timeout (dev). Note B1 wait loop refreshes IWDG so a long
   *       wait before the button press does not trigger a reset.
@@ -670,7 +674,7 @@ int main(void)
       int16_t enc_l_now = (int16_t)__HAL_TIM_GET_COUNTER(&htim2);
       int16_t enc_r_now = (int16_t)__HAL_TIM_GET_COUNTER(&htim4);
       int16_t dl = enc_l_now - enc_l_prev;
-      int16_t dr = -(enc_r_now - enc_r_prev);   /* R motor wiring inverted */
+      int16_t dr = -(enc_r_now - enc_r_prev);   /* R encoder counts opposite: mirror-mounted motor */
       enc_l_prev = enc_l_now;
       enc_r_prev = enc_r_now;
       enc_l_total += dl;

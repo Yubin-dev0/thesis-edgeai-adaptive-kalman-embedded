@@ -11,8 +11,10 @@ running the Phase 6 firmware, and reports, per run:
   7-E-3  Bluetooth drop rate        - estimated from gaps in the seq counter
 
 The roll speed is derived from the encoder counts. The Phase 6 firmware
-already corrects the right-encoder sign (the right motor wiring was
-reversed), so both channels increase together and the two deltas are
+already corrects the right-encoder sign (the right motor is mounted
+mirror-symmetrically, so its encoder counts in the opposite direction for
+the same forward motion - not a wiring issue), so both channels increase
+together and the two deltas are
 simply ADDED: v = (dL + dR)/2 * MM_PER_PULSE / dt.
 NOTE: pre-fix captures (right encoder negative) must NOT be analysed with
 this script - the speed would cancel to ~0. Only post-fix runs are valid.
